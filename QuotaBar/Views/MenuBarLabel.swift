@@ -26,6 +26,7 @@ struct MenuBarLabel: View {
                 snapshots: viewModel.snapshots,
                 mode: viewModel.menuBarDisplayMode,
                 replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
+                showNames: viewModel.settings.showAccountNames,
                 now: viewModel.displayNow
             ))
         }

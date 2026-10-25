@@ -157,7 +157,9 @@ final class AccountsViewModel: ObservableObject {
         self.deps = deps
 
         var settings = AppSettings.load(from: defaults)
-        let mode = settings.initialDisplayMode(from: defaults)
+        var mode = settings.initialDisplayMode(from: defaults)
+        // The menu bar now offers only 5h or 7d; an older Auto/Bars choice becomes 5h.
+        if mode == .auto || mode == .bars { mode = .fiveHour }
         if mode == .sevenDay { settings.showFiveHourByDefault = false }
         if mode == .fiveHour || mode == .auto { settings.showFiveHourByDefault = true }
         self.settings = settings

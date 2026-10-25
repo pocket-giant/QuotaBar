@@ -9,6 +9,8 @@ struct AppSettings: Equatable {
     var usageWarnings = true
     var warningThresholds = [80, 95]
     var theme: AppTheme = .system
+    /// Account names (S / W …) beside each value in the multi-account menu bar. Off by default.
+    var showAccountNames = false
 
     var notificationsEnabled: Bool { notifyFiveHourReset || notifyWeeklyReset || usageWarnings }
 
@@ -22,7 +24,8 @@ struct AppSettings: Equatable {
             usageWarnings: enabled("usageWarnings"),
             warningThresholds: ThresholdTracker.sanitizedThresholds(
                 from: defaults.array(forKey: "notificationThresholds"), default: [80, 95]),
-            theme: defaults.string(forKey: "appTheme").flatMap(AppTheme.init(rawValue:)) ?? .system)
+            theme: defaults.string(forKey: "appTheme").flatMap(AppTheme.init(rawValue:)) ?? .system,
+            showAccountNames: defaults.bool(forKey: "showAccountNames"))
     }
 
     func save(to defaults: UserDefaults) {
@@ -33,6 +36,7 @@ struct AppSettings: Equatable {
         defaults.set(usageWarnings, forKey: "usageWarnings")
         defaults.set(warningThresholds, forKey: "notificationThresholds")
         defaults.set(theme.rawValue, forKey: "appTheme")
+        defaults.set(showAccountNames, forKey: "showAccountNames")
     }
 
     func initialDisplayMode(from defaults: UserDefaults) -> MenuBarDisplayMode {

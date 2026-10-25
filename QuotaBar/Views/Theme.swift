@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 /// The popover's appearance choice: follow macOS, or force light or dark.
 enum AppTheme: String, CaseIterable {
@@ -11,6 +12,18 @@ enum AppTheme: String, CaseIterable {
         case .dark: return "Dark"
         }
     }
+
+    /// The window appearance to force. A `MenuBarExtra` window ignores
+    /// `preferredColorScheme`, so the theme is applied app-wide through `NSApp.appearance`.
+    var appearance: NSAppearance? {
+        switch self {
+        case .system: return nil
+        case .light: return NSAppearance(named: .aqua)
+        case .dark: return NSAppearance(named: .darkAqua)
+        }
+    }
+
+    @MainActor func apply() { NSApp?.appearance = appearance }
 
     var colorScheme: ColorScheme? {
         switch self {

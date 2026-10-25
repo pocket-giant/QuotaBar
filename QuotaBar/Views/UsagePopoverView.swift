@@ -7,6 +7,8 @@ struct UsagePopoverView: View {
         PopoverContent(viewModel: viewModel)
             .modifier(Themed())
             .preferredColorScheme(viewModel.settings.theme.colorScheme)
+            .onAppear { viewModel.settings.theme.apply() }
+            .onChange(of: viewModel.settings.theme) { $0.apply() }
             .task { await viewModel.requestNotificationAuthorization() }
     }
 }
@@ -170,9 +172,9 @@ private struct PopoverContent: View {
             VStack(spacing: 0) {
                 row("Menu bar") {
                     Picker("Menu bar", selection: $viewModel.menuBarDisplayMode) {
-                        ForEach(MenuBarDisplayMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                        ForEach([MenuBarDisplayMode.fiveHour, .sevenDay], id: \.self) { Text($0.label).tag($0) }
                     }
-                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
                 }
                 separator
                 row("Theme") {
@@ -180,6 +182,11 @@ private struct PopoverContent: View {
                         ForEach(AppTheme.allCases, id: \.self) { Text($0.label).tag($0) }
                     }
                     .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                separator
+                row("Account names in menu bar") {
+                    Toggle("Account names in menu bar", isOn: $viewModel.settings.showAccountNames)
+                        .toggleStyle(.switch).labelsHidden().controlSize(.small)
                 }
                 separator
                 row("Launch at login") {

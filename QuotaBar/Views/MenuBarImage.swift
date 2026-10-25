@@ -97,6 +97,7 @@ enum MenuBarImage {
         snapshots: [UUID: UsageSnapshot],
         mode: MenuBarDisplayMode,
         replaceExhausted: Bool = true,
+        showNames: Bool = true,
         now: Date = Date()
     ) -> NSImage {
         let prefixes = MultiAccountMenuBar.shortPrefixes(
@@ -136,11 +137,13 @@ enum MenuBarImage {
         // its own string beside it; otherwise the segment stays the single string it always was,
         // so single-provider output is byte-identical.
         func pieces(_ segment: Segment) -> [NSAttributedString] {
-            guard let valueColor = segment.valueColor else {
+            var valueAttrs = textAttrs
+            if let valueColor = segment.valueColor { valueAttrs[.foregroundColor] = valueColor }
+            // Names off: the dot / provider mark identifies the account, the value stands alone.
+            guard showNames else { return [NSAttributedString(string: segment.value, attributes: valueAttrs)] }
+            guard segment.valueColor != nil else {
                 return [NSAttributedString(string: "\(segment.prefix) \(segment.value)", attributes: textAttrs)]
             }
-            var valueAttrs = textAttrs
-            valueAttrs[.foregroundColor] = valueColor
             return [NSAttributedString(string: "\(segment.prefix) ", attributes: textAttrs),
                     NSAttributedString(string: segment.value, attributes: valueAttrs)]
         }
