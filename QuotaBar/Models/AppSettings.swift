@@ -8,6 +8,7 @@ struct AppSettings: Equatable {
     var notifyWeeklyReset = true
     var usageWarnings = true
     var warningThresholds = [80, 95]
+    var theme: AppTheme = .system
 
     var notificationsEnabled: Bool { notifyFiveHourReset || notifyWeeklyReset || usageWarnings }
 
@@ -20,7 +21,8 @@ struct AppSettings: Equatable {
             notifyWeeklyReset: enabled("notifyWeeklyReset"),
             usageWarnings: enabled("usageWarnings"),
             warningThresholds: ThresholdTracker.sanitizedThresholds(
-                from: defaults.array(forKey: "notificationThresholds"), default: [80, 95]))
+                from: defaults.array(forKey: "notificationThresholds"), default: [80, 95]),
+            theme: defaults.string(forKey: "appTheme").flatMap(AppTheme.init(rawValue:)) ?? .system)
     }
 
     func save(to defaults: UserDefaults) {
@@ -30,6 +32,7 @@ struct AppSettings: Equatable {
         defaults.set(notifyWeeklyReset, forKey: "notifyWeeklyReset")
         defaults.set(usageWarnings, forKey: "usageWarnings")
         defaults.set(warningThresholds, forKey: "notificationThresholds")
+        defaults.set(theme.rawValue, forKey: "appTheme")
     }
 
     func initialDisplayMode(from defaults: UserDefaults) -> MenuBarDisplayMode {

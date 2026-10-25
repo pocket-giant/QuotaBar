@@ -40,6 +40,10 @@ struct MenuBarLabel: View {
         let active = MenuBarSelection.active(mode: viewModel.menuBarDisplayMode, snapshot: snapshot,
                                              now: viewModel.displayNow)
         let needsRefresh = viewModel.needsReAuth[account.id] ?? false
+        let countdown = active.map {
+            UsageFormatting.showsFiveHourCountdown($0, replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
+                                                   now: viewModel.displayNow)
+        } ?? false
 
         HStack(spacing: 4) {
             if needsRefresh {
@@ -49,9 +53,14 @@ struct MenuBarLabel: View {
                 Image(nsImage: MenuBarImage.badge(
                     window: active?.window ?? (viewModel.menuBarDisplayMode == .auto ? .fiveHour : viewModel.menuBarDisplayMode),
                     isAuto: viewModel.menuBarDisplayMode == .auto,
-                    percent: active?.percent ?? 0
+                    percent: active?.percent ?? 0,
+                    countdown: countdown
                 ))
-                Text(viewModel.menuBarText).monospacedDigit()
+                if countdown {
+                    Image(nsImage: MenuBarImage.coloredText(viewModel.menuBarText, color: MenuBarImage.countdownColor))
+                } else {
+                    Text(viewModel.menuBarText).monospacedDigit()
+                }
             }
         }
     }

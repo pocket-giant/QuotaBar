@@ -22,6 +22,14 @@ enum UsageFormatting {
         return "\(active.percent)%"
     }
 
+    /// True when the menu bar shows the exhausted 5-hour window as a reset countdown rather
+    /// than a percent. Those countdowns are drawn blue; everything else keeps its level color.
+    static func showsFiveHourCountdown(_ active: MenuBarSelection.Active,
+                                       replaceExhausted: Bool = true, now: Date = Date()) -> Bool {
+        replaceExhausted && active.window == .fiveHour && active.percent >= 100
+            && exhaustedCountdown(until: active.resetsAt, now: now) != nil
+    }
+
     /// Coarse countdown to a reset ("2d 3h" / "4h 12m" / "18m" / "now" / "—"). Matches the
     /// historical `UsageViewModel.resetCountdown` output exactly.
     static func resetCountdown(until date: Date?, now: Date = Date()) -> String {

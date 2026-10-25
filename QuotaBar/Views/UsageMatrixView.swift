@@ -10,8 +10,9 @@ struct UsageMatrixView: View {
     /// No label column any more: every card carries its own labels.
     static let labelWidth: CGFloat = 0
     static let columnWidth: CGFloat = 236
-    static let columnSpacing: CGFloat = 10
+    static let columnSpacing: CGFloat = 12
 
+    @Environment(\.palette) private var palette
     @State private var editingID: UUID?
     @State private var draftLabel = ""
     @State private var draftShortCode = ""
@@ -52,15 +53,18 @@ struct UsageMatrixView: View {
 
     private func card(_ column: AccountsViewModel.AccountView, index: Int, now: Date,
                       fiveHourLeader: Bool, weeklyLeader: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header(column, index: index, now: now)
+        VStack(alignment: .leading, spacing: 18) {
+            header(column, index: index)
             if let snap = column.snapshot {
-                if let five = snap.fiveHourEffectivePercent(now: now) {
-                    usageBlock("5-hour session", percent: five, resetsAt: snap.fiveHourResetsAt,
-                               leader: fiveHourLeader, live: true, now: now)
+                HStack(alignment: .top, spacing: 12) {
+                    if let five = snap.fiveHourEffectivePercent(now: now) {
+                        gauge("5-hour", percent: five, resetsAt: snap.fiveHourResetsAt,
+                              leader: fiveHourLeader, fiveHour: true, now: now)
+                    }
+                    gauge("Weekly", percent: snap.sevenDayEffectivePercent(now: now),
+                          resetsAt: snap.sevenDayResetsAt, leader: weeklyLeader, fiveHour: false, now: now)
                 }
-                usageBlock("Weekly", percent: snap.sevenDayEffectivePercent(now: now),
-                           resetsAt: snap.sevenDayResetsAt, leader: weeklyLeader, live: false, now: now)
+                .frame(maxWidth: .infinity)
                 if let limits = snap.modelLimits, !limits.isEmpty {
                     VStack(alignment: .leading, spacing: 10) {
                         ForEach(limits) { modelLine($0, now: now) }
@@ -70,57 +74,71 @@ struct UsageMatrixView: View {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.system(size: 12)).foregroundStyle(.orange).lineLimit(4)
             } else {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 80)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 110)
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                freshness(column, now: now)
+                loginExpiryLine(column, now: now)
             }
         }
         .padding(16)
         .frame(minWidth: Self.columnWidth, maxWidth: .infinity, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.primary.opacity(0.045)))
-        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(palette.card)
+            .shadow(color: palette.shadow, radius: 10, y: 3))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(palette.cardBorder, lineWidth: 1))
         .popover(isPresented: editBinding(for: column.account.id), arrowEdge: .bottom) { editForm(column.account) }
     }
 
     // MARK: - Header
 
-    private func header(_ column: AccountsViewModel.AccountView, index: Int, now: Date) -> some View {
+    private func header(_ column: AccountsViewModel.AccountView, index: Int) -> some View {
         let account = column.account
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Circle().fill(AccountColor.color(forIndex: index)).frame(width: 9, height: 9)
-                Text(account.label).font(.system(size: 15, weight: .semibold)).lineLimit(1)
-                Spacer(minLength: 4)
-                Button {
-                    draftLabel = account.label
-                    draftShortCode = account.shortCode ?? ""
-                    editingID = account.id
-                } label: { Image(systemName: "pencil").font(.system(size: 12)) }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Rename / set menu-bar code")
-                Button(role: .destructive) {
-                    Task { await viewModel.remove(account.id) }
-                } label: { Image(systemName: "trash").font(.system(size: 12)) }
-                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove this account")
-            }
-            if let email = account.email, email != account.label {
-                Text(email).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-            }
-            if mixedProviders {
-                HStack(spacing: 4) {
-                    // The same asset the menu bar draws. Claude's mark in its brand orange;
-                    // OpenAI's is black/white so it takes the secondary style.
-                    if let mark = ProviderShape.mark(for: account.provider, mixed: true).image {
+        let tint = AccountColor.color(forIndex: index)
+        return HStack(spacing: 10) {
+            Text(String(account.label.prefix(1)).uppercased())
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(tint)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(tint.opacity(0.16)))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(account.label).font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(palette.text).lineLimit(1)
+                    if mixedProviders, let mark = ProviderShape.mark(for: account.provider, mixed: true).image {
+                        // The same asset the menu bar draws. Claude's mark in its brand orange;
+                        // OpenAI's is black/white so it takes the secondary color.
                         Image(nsImage: mark)
                             .renderingMode(.template)
                             .resizable().scaledToFit().frame(height: 11)
                             .foregroundStyle(account.provider == .anthropic
-                                             ? AnyShapeStyle(Color(nsColor: ProviderShape.claudeBrand))
-                                             : AnyShapeStyle(HierarchicalShapeStyle.secondary))
+                                             ? Color(nsColor: ProviderShape.claudeBrand) : palette.secondary)
+                            .help(account.provider.displayName)
                     }
-                    Text(account.provider.displayName).font(.system(size: 11, weight: .medium))
                 }
-                .foregroundStyle(.secondary)
+                if let email = account.email, email != account.label {
+                    Text(email).font(.system(size: 11)).foregroundStyle(palette.secondary)
+                        .lineLimit(1).truncationMode(.middle)
+                }
             }
-            freshness(column, now: now)
-            loginExpiryLine(column, now: now)
+            Spacer(minLength: 4)
+            Menu {
+                Button("Rename…") {
+                    draftLabel = account.label
+                    draftShortCode = account.shortCode ?? ""
+                    editingID = account.id
+                }
+                Divider()
+                Button("Remove account", role: .destructive) {
+                    Task { await viewModel.remove(account.id) }
+                }
+            } label: {
+                Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.secondary)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .help("Rename, set menu-bar code, or remove")
         }
     }
 
@@ -142,13 +160,13 @@ struct UsageMatrixView: View {
                 .buttonStyle(.plain).help("Refresh this account now")
             } else {
                 Label("Updated \(ago)", systemImage: "circle.fill")
-                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(palette.tertiary)
                     .labelStyle(DotLabelStyle())
             }
         } else if case .error = column.state {
             Text("Couldn't load").font(.system(size: 11)).foregroundStyle(.orange)
         } else {
-            Text("Loading…").font(.system(size: 11)).foregroundStyle(.secondary)
+            Text("Loading…").font(.system(size: 11)).foregroundStyle(palette.tertiary)
         }
     }
 
@@ -176,32 +194,28 @@ struct UsageMatrixView: View {
 
     // MARK: - Usage
 
-    private func usageBlock(_ title: String, percent: Int, resetsAt: Date?, leader: Bool, live: Bool, now: Date) -> some View {
-        let color: Color = UsageColor.level(percent)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(title.uppercased()).font(.system(size: 11, weight: .semibold))
-                    .tracking(0.6).foregroundStyle(.secondary)
-                Spacer(minLength: 4)
-                if leader {
-                    Text("Highest").font(.system(size: 11, weight: .semibold)).foregroundStyle(.orange)
-                        .padding(.horizontal, 7).padding(.vertical, 1)
-                        .background(Capsule().fill(Color.orange.opacity(0.14)))
+    private func gauge(_ title: String, percent: Int, resetsAt: Date?, leader: Bool,
+                       fiveHour: Bool, now: Date) -> some View {
+        VStack(spacing: 8) {
+            UsageRing(percent: percent, color: UsageColor.level(percent))
+                .frame(width: 84, height: 84)
+                .overlay(alignment: .topTrailing) {
+                    if leader {
+                        Circle().fill(Color.orange).frame(width: 9, height: 9)
+                            .overlay(Circle().stroke(palette.card, lineWidth: 2))
+                            .help("Highest of your accounts")
+                    }
                 }
-            }
-            .frame(height: 20)
-            Text("\(percent)%")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .monospacedDigit().foregroundStyle(color)
-            ProgressBarView(percent: percent, color: color)
-            Label {
-                Text("Resets in \(live ? UsageFormatting.liveCountdown(until: resetsAt, now: now) : UsageFormatting.resetCountdown(until: resetsAt, now: now))")
-                    .font(.system(size: 12)).monospacedDigit()
-            } icon: {
-                Image(systemName: "clock").font(.system(size: 11))
-            }
-            .foregroundStyle(.secondary)
+                .padding(.bottom, 2)
+            Text(title).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.text)
+            // Only the 5-hour countdown is blue; the weekly one stays neutral.
+            Text(fiveHour ? UsageFormatting.liveCountdown(until: resetsAt, now: now)
+                          : UsageFormatting.resetCountdown(until: resetsAt, now: now))
+                .font(.system(size: 11, weight: .medium)).monospacedDigit()
+                .foregroundStyle(fiveHour ? palette.accent : palette.secondary)
+                .help("Time until this window resets")
         }
+        .frame(maxWidth: .infinity)
     }
 
     /// One per-model weekly limit, under the weekly numbers. A limit the provider flags as
@@ -212,14 +226,14 @@ struct UsageMatrixView: View {
         return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
                 Text(limit.modelName).font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary).lineLimit(1)
+                    .foregroundStyle(palette.secondary).lineLimit(1)
                 Spacer(minLength: 2)
                 Text("\(shown)%").font(.system(size: 12, weight: .semibold))
                     .monospacedDigit().foregroundStyle(color)
             }
             ProgressBarView(percent: shown, color: color, height: 5)
             Text("Resets in \(UsageFormatting.resetCountdown(until: limit.resetsAt, now: now))")
-                .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
+                .font(.system(size: 11)).foregroundStyle(palette.tertiary).lineLimit(1)
         }
     }
 

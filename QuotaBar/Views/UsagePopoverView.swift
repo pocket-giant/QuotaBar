@@ -2,29 +2,41 @@ import SwiftUI
 
 struct UsagePopoverView: View {
     @ObservedObject var viewModel: AccountsViewModel
+
+    var body: some View {
+        PopoverContent(viewModel: viewModel)
+            .modifier(Themed())
+            .preferredColorScheme(viewModel.settings.theme.colorScheme)
+            .task { await viewModel.requestNotificationAuthorization() }
+    }
+}
+
+/// Split from `UsagePopoverView` so the palette is read *inside* the forced color scheme.
+private struct PopoverContent: View {
+    @ObservedObject var viewModel: AccountsViewModel
+    @Environment(\.palette) private var palette
     @State private var settingsExpanded = false
 
-    /// Horizontal padding wrapping the matrix (matches `matrix`'s `.padding(.horizontal, 12)`).
+    /// Horizontal padding wrapping the cards (16 pt each side).
     private static let matrixHPadding: CGFloat = 32
 
     private var accountCount: Int { viewModel.accounts.count }
 
-    /// The matrix's grid width: label column + one column per account + hairline separators.
+    /// The cards' width: one column per account plus the gaps between them.
     private var matrixGridWidth: CGFloat {
         UsageMatrixView.labelWidth
             + UsageMatrixView.columnWidth * CGFloat(accountCount)
             + CGFloat(max(accountCount - 1, 0)) * UsageMatrixView.columnSpacing
     }
 
-    /// Grid plus its surrounding padding — the width the matrix actually needs.
+    /// Grid plus its surrounding padding: the width the cards actually need.
     private var matrixOuterWidth: CGFloat { matrixGridWidth + Self.matrixHPadding }
 
-    /// The screen the popover opens on: `NSScreen.main` is the screen with the key window.
-    /// The fallback only matters headless (no screens attached).
+    /// The screen the popover opens on. The fallback only matters headless.
     private var visibleWidth: CGFloat { NSScreen.main?.visibleFrame.width ?? 1440 }
 
-    /// Single account keeps the original 320-pt column; 2+ accounts widen to fit the matrix,
-    /// up to what the screen can show.
+    /// Single account keeps the 320-pt column; 2+ accounts widen to fit the cards, up to what
+    /// the screen can show.
     private var popoverWidth: CGFloat {
         PopoverLayout.width(accountCount: accountCount, matrixOuterWidth: matrixOuterWidth,
                             visibleWidth: visibleWidth)
@@ -33,27 +45,22 @@ struct UsagePopoverView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
-
             if viewModel.accounts.isEmpty {
                 emptyState
             } else {
                 matrix
             }
-
             addAccountControls
-            Divider()
-            footer.padding(.horizontal, 16).padding(.vertical, 12)
-                .background(Color.primary.opacity(0.03))
+            footer
         }
         .frame(width: popoverWidth)
-        .task { await viewModel.requestNotificationAuthorization() }
+        .background(palette.background)
     }
 
     @ViewBuilder
     private var matrix: some View {
         let content = UsageMatrixView(viewModel: viewModel, columns: viewModel.accountViews)
-            .padding(.horizontal, 16).padding(.vertical, 14)
+            .padding(.horizontal, 16).padding(.top, 4).padding(.bottom, 12)
         if PopoverLayout.scrolls(matrixOuterWidth: matrixOuterWidth, visibleWidth: visibleWidth) {
             ScrollView(.horizontal, showsIndicators: true) { content }
         } else {
@@ -66,30 +73,45 @@ struct UsagePopoverView: View {
     private var header: some View {
         HStack(spacing: 10) {
             Image(systemName: "gauge.with.dots.needle.33percent")
-                .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
-                .frame(width: 28, height: 28)
-                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.blue.opacity(0.85), Color.blue],
-                                         startPoint: .top, endPoint: .bottom)))
-            Text("QuotaBar").font(.system(size: 17, weight: .semibold))
+                .font(.system(size: 14, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(hex: 0x4C_A3_FF), Color(hex: 0x0A_66_E0)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing)))
+            VStack(alignment: .leading, spacing: 1) {
+                Text("QuotaBar").font(.system(size: 15, weight: .semibold)).foregroundStyle(palette.text)
+                Text(subtitle).font(.system(size: 11)).foregroundStyle(palette.secondary)
+            }
             Spacer()
             Button {
                 Task { await viewModel.refreshAll() }
             } label: {
-                Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
+                Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.secondary)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(palette.card))
+                    .overlay(Circle().stroke(palette.cardBorder, lineWidth: 1))
             }
-            .buttonStyle(.borderless).foregroundStyle(.secondary).help("Refresh all now")
+            .buttonStyle(.plain).help("Refresh all now")
         }
-        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 14)
+    }
+
+    private var subtitle: String {
+        switch accountCount {
+        case 0: return "Usage limits at a glance"
+        case 1: return "1 account"
+        default: return "\(accountCount) accounts"
+        }
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "person.crop.circle.badge.plus")
-                .font(.system(size: 28)).foregroundStyle(.secondary)
-            Text("No accounts yet").font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 28)).foregroundStyle(palette.secondary)
+            Text("No accounts yet").font(.system(size: 15, weight: .semibold)).foregroundStyle(palette.text)
             Text("Add an account below to start tracking its usage.")
-                .font(.system(size: 13)).foregroundStyle(.secondary)
+                .font(.system(size: 12)).foregroundStyle(palette.secondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 28).padding(.horizontal, 16)
@@ -104,9 +126,9 @@ struct UsagePopoverView: View {
     }
 
     private var addAccountControls: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 6) {
             // Once an add-account login is running, its own controls replace the button that
-            // started it — starting a second one would be refused anyway.
+            // started it: starting a second one would be refused anyway.
             if viewModel.loginAffordance(for: nil) == .none {
                 Menu {
                     Button {
@@ -118,49 +140,65 @@ struct UsagePopoverView: View {
                     } label: { Label { Text("OpenAI / Codex") } icon: { providerMark(.openAIMark) } }
                         .help("Opens auth.openai.com in your browser to sign in with your ChatGPT account")
                 } label: {
-                    Label("Add account", systemImage: "plus.circle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .frame(maxWidth: .infinity)
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .bold))
+                        Text("Add account").font(.system(size: 13, weight: .medium))
+                    }
                 }
-                .menuStyle(.borderlessButton)
-                .foregroundStyle(Color.accentColor)
-                .controlSize(.large)
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .tint(palette.accent)
+                // The borderless menu drops styling on its label, so the frame lives outside it.
+                .frame(maxWidth: .infinity).frame(height: 36)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(palette.accent.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
             } else {
                 LoginPill(viewModel: viewModel, accountID: nil)
             }
 
             if let error = viewModel.addAccountError {
-                Text(error).font(.system(size: 12)).foregroundStyle(.secondary)
+                Text(error).font(.system(size: 11)).foregroundStyle(palette.secondary)
                     .multilineTextAlignment(.center).lineLimit(3)
-            } else {
-                Text("Sign in with your browser, one account at a time.")
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 14)
+        .padding(.horizontal, 16).padding(.bottom, 14)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Text("Menu bar").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize()
-                Picker("", selection: $viewModel.menuBarDisplayMode) {
-                    ForEach(MenuBarDisplayMode.allCases, id: \.self) { Text($0.label).tag($0) }
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                row("Menu bar") {
+                    Picker("Menu bar", selection: $viewModel.menuBarDisplayMode) {
+                        ForEach(MenuBarDisplayMode.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
                 }
-                .pickerStyle(.segmented).labelsHidden()
+                separator
+                row("Theme") {
+                    Picker("Theme", selection: $viewModel.settings.theme) {
+                        ForEach(AppTheme.allCases, id: \.self) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                separator
+                row("Launch at login") {
+                    Toggle("Launch at login", isOn: Binding(
+                        get: { viewModel.launchAtLogin },
+                        set: { _ in viewModel.toggleLaunchAtLogin() }
+                    ))
+                    .toggleStyle(.switch).labelsHidden().controlSize(.small)
+                }
+                separator
+                DisclosureGroup(isExpanded: $settingsExpanded) {
+                    SettingsView(viewModel: viewModel).padding(.bottom, 6)
+                } label: {
+                    Text("More settings").font(.system(size: 13)).foregroundStyle(palette.text)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
             }
-
-            HStack {
-                Text("Launch at login").font(.system(size: 13))
-                Spacer()
-                Toggle("Launch at login", isOn: Binding(
-                    get: { viewModel.launchAtLogin },
-                    set: { _ in viewModel.toggleLaunchAtLogin() }
-                ))
-                .toggleStyle(.switch).labelsHidden().controlSize(.small)
-            }
+            .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(palette.card))
+            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).stroke(palette.cardBorder, lineWidth: 1))
 
             if viewModel.notificationsAuthorized == false {
                 Button {
@@ -173,29 +211,39 @@ struct UsagePopoverView: View {
                         Text("Notifications off. Enable in System Settings").lineLimit(1)
                         Spacer(minLength: 0)
                     }
-                    .font(.system(size: 12)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(palette.secondary)
                 }
-                .buttonStyle(.borderless)
-            }
-
-            DisclosureGroup(isExpanded: $settingsExpanded) {
-                SettingsView(viewModel: viewModel)
-            } label: {
-                Label("Settings", systemImage: "gearshape").font(.system(size: 13))
+                .buttonStyle(.borderless).padding(.top, 10)
             }
 
             HStack {
                 // Credited fork: the original is MIT-licensed, by sam-pop.
                 HStack(spacing: 0) {
-                    Text("Fork of QuotaBar by sam-pop · ").foregroundStyle(.tertiary)
+                    Text("Fork of QuotaBar by sam-pop · ").foregroundStyle(palette.tertiary)
                     Link("Pocket Giant", destination: URL(string: "https://pocketgiant.games/")!)
+                        .foregroundStyle(palette.accent)
                 }
                 .font(.system(size: 11))
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
+                    .buttonStyle(.borderless).font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.secondary)
             }
+            .padding(.top, 12)
         }
+        .padding(.horizontal, 16).padding(.bottom, 14)
+    }
+
+    private func row<Control: View>(_ title: String, @ViewBuilder control: () -> Control) -> some View {
+        HStack {
+            Text(title).font(.system(size: 13)).foregroundStyle(palette.text).fixedSize()
+            Spacer(minLength: 8)
+            control()
+        }
+        .padding(.horizontal, 12).frame(minHeight: 40)
+    }
+
+    private var separator: some View {
+        Rectangle().fill(palette.cardBorder).frame(height: 1).padding(.leading, 12)
     }
 }

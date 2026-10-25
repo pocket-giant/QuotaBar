@@ -4,17 +4,53 @@ import AppKit
 /// because `Text`/SF Symbols render monochrome in a `MenuBarExtra` label.
 enum MenuBarImage {
 
-    /// The menu bar is always blue, whatever the usage: severity (green / yellow / red) lives
-    /// in the popover, so the status item never changes colour as a limit gets close.
-    /// `percent` is kept so every call site reads the same as before.
-    static func levelColor(_ percent: Int) -> NSColor { .systemBlue }
-
-    /// Blue for percentages drawn as *text* in the menu bar. A fixed pair that stays legible on a
-    /// light or dark menu bar; the dynamic provider resolves at draw time.
-    static func textLevelColor(_ percent: Int) -> NSColor {
-        NSColor(name: nil) { appearance in
-            srgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0x4C_A3_FF : 0x0A_66_E0)
+    /// Level color for a percent, matching `UsageViewModel.color(for:)`.
+    static func levelColor(_ percent: Int) -> NSColor {
+        switch percent {
+        case ..<50: return .systemGreen
+        case ..<75: return .systemYellow
+        default:    return .systemRed
         }
+    }
+
+    /// Level color for a percent drawn as *text*, not as a filled dot: text needs far more
+    /// contrast to stay legible, and `systemYellow` at 11 pt on a light menu bar does not have
+    /// it. These are the popover mockups' severity tokens (`design-mockups/popover-redesign.html`,
+    /// `--lvl-low/mid/crit`), light / dark. The dynamic provider resolves them at draw time, so a
+    /// dark menu bar under a light desktop still gets the dark variant. Thresholds match
+    /// `levelColor`.
+    static func textLevelColor(_ percent: Int) -> NSColor {
+        let light: UInt32, dark: UInt32
+        switch percent {
+        case ..<50: (light, dark) = (0x1A_7F_37, 0x3F_B9_50)
+        case ..<75: (light, dark) = (0x9A_67_00, 0xE3_B3_41)
+        default:    (light, dark) = (0xCF_22_2E, 0xF8_51_49)
+        }
+        return NSColor(name: nil) { appearance in
+            srgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
+        }
+    }
+
+    /// The 5-hour reset countdown that replaces an exhausted 100%: always blue, so a window
+    /// that is about to reopen never reads as a severity color. Dynamic for light / dark bars.
+    static let countdownColor = NSColor(name: nil) { appearance in
+        srgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0x4C_A3_FF : 0x0A_66_E0)
+    }
+
+    /// A single line of menu-bar text baked into an image, so it can keep a color that a
+    /// `MenuBarExtra` label's `Text` would render monochrome.
+    static func coloredText(_ text: String, color: NSColor) -> NSImage {
+        let str = NSAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedDigitSystemFont(ofSize: NSFont.systemFontSize, weight: .regular),
+            .foregroundColor: color,
+        ])
+        let size = NSSize(width: ceil(str.size().width) + 1, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            str.draw(at: NSPoint(x: 0, y: (rect.height - str.size().height) / 2))
+            return true
+        }
+        image.isTemplate = false
+        return image
     }
 
     private static func srgb(_ hex: UInt32) -> NSColor {
@@ -24,10 +60,11 @@ enum MenuBarImage {
                 alpha: 1)
     }
 
-    /// The single-account 5h/7d badge, always blue.
-    static func badge(window: MenuBarDisplayMode, isAuto: Bool, percent: Int) -> NSImage {
+    /// The single-account 5h/7d badge (blue in auto mode or while showing the 5-hour
+    /// countdown, else the level color).
+    static func badge(window: MenuBarDisplayMode, isAuto: Bool, percent: Int, countdown: Bool = false) -> NSImage {
         let badgeText = window == .fiveHour ? "5h" : "7d"
-        let bgColor = levelColor(percent)
+        let bgColor = (isAuto || countdown) ? NSColor.systemBlue : levelColor(percent)
         let size = NSSize(width: 18, height: 18)
 
         let image = NSImage(size: size, flipped: false) { rect in
@@ -78,8 +115,9 @@ enum MenuBarImage {
             if let snapshot = snapshots[account.id],
                let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 let tag = MultiAccountMenuBar.windowTag(mode: mode, window: active.window)
-                return Segment(dotColor: levelColor(active.percent),
-                               valueColor: mixed ? textLevelColor(active.percent) : nil,
+                let countdown = UsageFormatting.showsFiveHourCountdown(active, replaceExhausted: replaceExhausted, now: now)
+                return Segment(dotColor: countdown ? .systemBlue : levelColor(active.percent),
+                               valueColor: countdown ? countdownColor : (mixed ? textLevelColor(active.percent) : nil),
                                prefix: prefix,
                                value: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now),
                                tag: tag, shape: shape)
