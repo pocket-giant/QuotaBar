@@ -73,9 +73,9 @@ struct LoginPill: View {
     private func line(_ text: String, icon: String, tint: Color) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: layout == .compact ? 8 : 10)).foregroundStyle(tint)
+                .font(.system(size: layout == .compact ? 10 : 11)).foregroundStyle(tint)
             Text(text)
-                .font(layout == .compact ? .system(size: 9) : .caption2)
+                .font(layout == .compact ? .system(size: 11) : .caption)
                 .foregroundStyle(tint == .red ? Color.red : Color.secondary)
                 .lineLimit(3).fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -87,8 +87,8 @@ struct LoginPill: View {
             Task { await viewModel.beginLogin(accountID) }
         } label: {
             HStack(spacing: 3) {
-                Image(systemName: "key.slash.fill").font(.system(size: 8))
-                Text("Log in again").font(.system(size: 9, weight: .semibold))
+                Image(systemName: "key.slash.fill").font(.system(size: 10))
+                Text("Log in again").font(.system(size: 11, weight: .semibold))
             }
             .foregroundStyle(Color.red)
             .padding(.horizontal, 7).padding(.vertical, 2)
@@ -102,7 +102,7 @@ struct LoginPill: View {
     private var pasteField: some View {
         let field = TextField("code#state", text: $pasteDraft)
             .textFieldStyle(.roundedBorder).controlSize(.small)
-            .font(layout == .compact ? .system(size: 9) : nil)
+            .font(layout == .compact ? .system(size: 11) : nil)
             .onSubmit { submitPaste() }
         let submit = Button("Submit") { submitPaste() }
             .controlSize(.mini).buttonStyle(.borderedProminent)
@@ -134,7 +134,7 @@ struct LoginPill: View {
     @ViewBuilder
     private func button(_ action: LoginAction) -> some View {
         let label = Text(title(for: action))
-            .font(layout == .compact ? .system(size: 9, weight: .medium) : .caption2)
+            .font(layout == .compact ? .system(size: 11, weight: .medium) : .caption)
         if isPrimary(action) {
             Button { perform(action) } label: { label }
                 .controlSize(.mini).buttonStyle(.borderedProminent).help(help(for: action))

@@ -18,17 +18,17 @@ struct MenuBarSelectionTests {
         )
     }
 
-    @Test("Auto picks higher window, ties go to 5h, explicit modes honored, nil snapshot")
+    @Test("Auto always prefers 5h; explicit modes and nil snapshot are honored")
     func selection() throws {
-        // Auto picks the higher-utilization window.
+        // Auto always picks the 5-hour window.
         let autoHigh5h = try #require(MenuBarSelection.active(mode: .auto, snapshot: snapshot(fiveHour: 90, sevenDay: 40), now: testNow))
         #expect(autoHigh5h.window == .fiveHour)
         #expect(autoHigh5h.percent == 90)
         #expect(autoHigh5h.resetsAt == Date(timeIntervalSince1970: 100))
 
         let autoHigh7d = try #require(MenuBarSelection.active(mode: .auto, snapshot: snapshot(fiveHour: 30, sevenDay: 70), now: testNow))
-        #expect(autoHigh7d.window == .sevenDay)
-        #expect(autoHigh7d.percent == 70)
+        #expect(autoHigh7d.window == .fiveHour)
+        #expect(autoHigh7d.percent == 30)
 
         // Tie goes to the 5-hour window (>=).
         let tie = try #require(MenuBarSelection.active(mode: .auto, snapshot: snapshot(fiveHour: 50, sevenDay: 50), now: testNow))
@@ -47,7 +47,7 @@ struct MenuBarSelectionTests {
         #expect(MenuBarSelection.active(mode: .auto, snapshot: nil, now: testNow) == nil)
     }
 
-    @Test("A window past its reset reads 0%, and auto de-selects it in favor of a live window")
+    @Test("An expired 5-hour window reads 0% and stays selected in Auto")
     func expiredWindowResetsToZero() throws {
         // 5h reset at t=100, 7d reset at t=200; observe at t=150 → 5h expired, 7d live.
         let afterFiveHourReset = Date(timeIntervalSince1970: 150)
@@ -56,10 +56,10 @@ struct MenuBarSelectionTests {
         let expired5h = try #require(MenuBarSelection.active(mode: .fiveHour, snapshot: snapshot(fiveHour: 100, sevenDay: 20), now: afterFiveHourReset))
         #expect(expired5h.percent == 0)
 
-        // Auto no longer treats the expired 5h (now 0%) as the worst window; it picks the live 7d.
+        // Auto keeps 5h selected after reset, even when weekly usage is higher.
         let auto = try #require(MenuBarSelection.active(mode: .auto, snapshot: snapshot(fiveHour: 100, sevenDay: 20), now: afterFiveHourReset))
-        #expect(auto.window == .sevenDay)
-        #expect(auto.percent == 20)
+        #expect(auto.window == .fiveHour)
+        #expect(auto.percent == 0)
     }
 
     @Test("An account with no 5-hour window resolves to the 7-day window in every mode")
@@ -136,49 +136,6 @@ struct ThresholdTrackerTests {
 
         // Strings that parse as ints are accepted (defaults write stores numbers as strings).
         #expect(ThresholdTracker.sanitizedThresholds(from: ["70", "95"]) == [70, 95])
-    }
-}
-
-// MARK: - HistoryBuffer
-
-@Suite("HistoryBuffer.appending")
-struct HistoryBufferTests {
-
-    private func point(at t: TimeInterval, five: Int = 0, seven: Int = 0) -> UsageDataPoint {
-        UsageDataPoint(timestamp: Date(timeIntervalSince1970: t), fiveHourPercent: five, sevenDayPercent: seven)
-    }
-
-    @Test("Skips samples within the interval")
-    func skipsWithinInterval() {
-        let history = [point(at: 1000)]
-        let result = HistoryBuffer.appending(point(at: 1100), to: history, maxPoints: 288, minInterval: 300)
-        #expect(result.count == 1)
-        #expect(result.last?.timestamp == Date(timeIntervalSince1970: 1000))
-    }
-
-    @Test("Appends once the interval has elapsed, preserving order")
-    func appendsAfterInterval() {
-        let history = [point(at: 1000)]
-        let result = HistoryBuffer.appending(point(at: 1300), to: history, maxPoints: 288, minInterval: 300)
-        #expect(result.count == 2)
-        #expect(result.last?.timestamp == Date(timeIntervalSince1970: 1300))
-    }
-
-    @Test("Caps at maxPoints, dropping oldest")
-    func capsAtMax() {
-        var history: [UsageDataPoint] = []
-        for i in 0..<5 { history.append(point(at: TimeInterval(i * 1000))) }
-        let result = HistoryBuffer.appending(point(at: 9000), to: history, maxPoints: 5, minInterval: 300)
-        #expect(result.count == 5)
-        // Oldest (t=0) dropped; newest is last.
-        #expect(result.first?.timestamp == Date(timeIntervalSince1970: 1000))
-        #expect(result.last?.timestamp == Date(timeIntervalSince1970: 9000))
-    }
-
-    @Test("Appends to an empty buffer")
-    func appendsToEmpty() {
-        let result = HistoryBuffer.appending(point(at: 500), to: [], maxPoints: 288, minInterval: 300)
-        #expect(result.count == 1)
     }
 }
 

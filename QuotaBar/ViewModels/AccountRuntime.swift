@@ -34,7 +34,8 @@ final class AccountRuntime {
         var now: () -> Date
         /// Fired for each newly-crossed usage threshold, so the coordinator can post a
         /// per-account notification. Optional so tests can omit it.
-        var onThresholdCrossing: ((ThresholdTracker.Crossing) -> Void)?
+        var onAllowanceEvent: ((AllowanceMonitor.Event) -> Void)?
+        var warningThresholds: () -> [Int]
         /// Fired at most once per `refresh()` for the most urgent newly-crossed
         /// login-expiry threshold, so the coordinator can post a per-account pre-expiry
         /// notification. `threshold` is the day-bucket (3 or 1) that fired, for a stable
@@ -48,13 +49,15 @@ final class AccountRuntime {
             fetchUsage: @escaping (String) async throws -> UsageResponse,
             refreshToken: @escaping (CachedCredentials) async throws -> CachedCredentials,
             now: @escaping () -> Date,
-            onThresholdCrossing: ((ThresholdTracker.Crossing) -> Void)? = nil,
+            onAllowanceEvent: ((AllowanceMonitor.Event) -> Void)? = nil,
+            warningThresholds: @escaping () -> [Int] = { [80, 95] },
             onLoginExpiryCrossing: ((_ threshold: Int, _ daysRemaining: Int) -> Void)? = nil
         ) {
             self.fetchUsage = fetchUsage
             self.refreshToken = refreshToken
             self.now = now
-            self.onThresholdCrossing = onThresholdCrossing
+            self.onAllowanceEvent = onAllowanceEvent
+            self.warningThresholds = warningThresholds
             self.onLoginExpiryCrossing = onLoginExpiryCrossing
         }
     }
@@ -62,7 +65,6 @@ final class AccountRuntime {
     let id: UUID
     private(set) var state: LoadingState = .idle
     private(set) var snapshot: UsageSnapshot?
-    private(set) var history: [UsageDataPoint] = []
     private(set) var needsReAuth = false
     /// The stored credentials' refresh-token expiry, refreshed alongside every fetch —
     /// never read from the keychain on its own, so the coordinator can mirror it into a
@@ -74,7 +76,9 @@ final class AccountRuntime {
     private let deps: Dependencies
     private let onChange: () -> Void
     private var breaker: RefreshCircuitBreaker
-    private var thresholdTracker: ThresholdTracker
+    private var allowanceMonitor: AllowanceMonitor
+    private var activeRefreshEpochs: Set<Int> = []
+    private var stopped = false
     private var loginExpiryNotifier = LoginExpiry.Notifier()
     private var refreshTask: Task<Void, Never>?
     /// Bumped by `credentialsReplaced()`. A `refresh()` call captures this at entry and
@@ -83,16 +87,12 @@ final class AccountRuntime {
     /// call's result is stale and must not overwrite `state`/`needsReAuth`/`snapshot`.
     private var epoch = 0
 
-    private static let maxHistoryPoints = 288      // 24 hours at 5-min sampling
-    private static let historySampleInterval: TimeInterval = 300
-
     init(
         id: UUID,
         credentials: AccountCredentialManager,
         persistence: AccountPersistence,
         deps: Dependencies,
         breaker: RefreshCircuitBreaker = RefreshCircuitBreaker(),
-        thresholdTracker: ThresholdTracker = ThresholdTracker(),
         onChange: @escaping () -> Void = {}
     ) {
         self.id = id
@@ -100,15 +100,16 @@ final class AccountRuntime {
         self.persistence = persistence
         self.deps = deps
         self.breaker = breaker
-        self.thresholdTracker = thresholdTracker
+        self.allowanceMonitor = AllowanceMonitor(state: persistence.loadAllowanceState())
         self.onChange = onChange
         self.snapshot = persistence.loadSnapshot()
-        self.history = persistence.loadHistory()
         if let snapshot { self.state = .loaded(snapshot) }
     }
 
     func refresh() async {
         let startEpoch = epoch
+        guard !stopped, activeRefreshEpochs.insert(startEpoch).inserted else { return }
+        defer { activeRefreshEpochs.remove(startEpoch) }
         if snapshot == nil { state = .loading }
         do {
             let snap = try await fetchWithRetry()
@@ -117,8 +118,9 @@ final class AccountRuntime {
             state = .loaded(snap)
             needsReAuth = false
             persistence.saveSnapshot(snap)
-            recordHistory(snap)
-            checkThresholds(snap)
+            let events = allowanceMonitor.record(snap, thresholds: deps.warningThresholds())
+            persistence.saveAllowanceState(allowanceMonitor.state)
+            for event in events { deps.onAllowanceEvent?(event) }
         } catch let error as UsageAPIError {
             guard startEpoch == epoch else { return }
             state = .error(error.localizedDescription)
@@ -131,6 +133,8 @@ final class AccountRuntime {
     }
 
     func stop() {
+        stopped = true
+        epoch += 1
         refreshTask?.cancel()
         refreshTask = nil
     }
@@ -176,10 +180,10 @@ final class AccountRuntime {
 
         for attempt in 1...policy.maxAttempts {
             do {
-                return UsageSnapshot(from: try await deps.fetchUsage(creds.accessToken))
+                return UsageSnapshot(from: try await deps.fetchUsage(creds.accessToken), fetchedAt: deps.now())
             } catch let error as UsageAPIError where error.isAuthError {
                 if breaker.allowsAttempt(now: deps.now()), let refreshed = await tryTokenRefresh(creds) {
-                    return UsageSnapshot(from: try await deps.fetchUsage(refreshed.accessToken))
+                    return UsageSnapshot(from: try await deps.fetchUsage(refreshed.accessToken), fetchedAt: deps.now())
                 }
                 throw UsageAPIError.tokenExpired
             } catch let error as UsageAPIError where error.isTransient {
@@ -214,31 +218,7 @@ final class AccountRuntime {
         }
     }
 
-    // MARK: - History + thresholds
-
-    private func recordHistory(_ snapshot: UsageSnapshot) {
-        let point = UsageDataPoint(
-            timestamp: snapshot.fetchedAt,
-            fiveHourPercent: snapshot.fiveHourPercent,
-            sevenDayPercent: snapshot.sevenDayPercent
-        )
-        let updated = HistoryBuffer.appending(
-            point, to: history,
-            maxPoints: Self.maxHistoryPoints,
-            minInterval: Self.historySampleInterval
-        )
-        guard updated.last?.timestamp != history.last?.timestamp else { return }
-        history = updated
-        persistence.saveHistory(history)
-    }
-
-    private func checkThresholds(_ snapshot: UsageSnapshot) {
-        let crossings = thresholdTracker.record(
-            fiveHour: snapshot.fiveHourPercent,
-            sevenDay: snapshot.sevenDayPercent
-        )
-        for crossing in crossings { deps.onThresholdCrossing?(crossing) }
-    }
+    // MARK: - Thresholds
 
     /// Run once credentials are available on every `refresh()`, regardless of whether the
     /// usage fetch afterward succeeds — the refresh token's expiry comes from the

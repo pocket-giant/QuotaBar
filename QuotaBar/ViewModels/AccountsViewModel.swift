@@ -1,6 +1,7 @@
 import SwiftUI
 import ServiceManagement
 import UserNotifications
+import Combine
 
 /// The app's single source of truth. Owns the account list and one `AccountRuntime` per
 /// account, plus app-global concerns (display mode, launch-at-login, notification auth).
@@ -22,8 +23,19 @@ final class AccountsViewModel: ObservableObject {
     @Published var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
     @Published var launchAtLoginError: String?
     @Published var notificationsAuthorized: Bool?
+    @Published var settings: AppSettings {
+        didSet { settings.save(to: defaults) }
+    }
+    @Published private(set) var displayNow: Date
     @Published var menuBarDisplayMode: MenuBarDisplayMode {
-        didSet { defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode") }
+        didSet {
+            defaults.set(menuBarDisplayMode.rawValue, forKey: "menuBarDisplayMode")
+            if menuBarDisplayMode == .fiveHour || menuBarDisplayMode == .auto {
+                settings.showFiveHourByDefault = true
+            } else if menuBarDisplayMode == .sevenDay {
+                settings.showFiveHourByDefault = false
+            }
+        }
     }
 
     /// Where a browser login currently stands for one account. Keyed by account id for a
@@ -108,7 +120,9 @@ final class AccountsViewModel: ObservableObject {
                 },
                 requestNotificationAuthorization: {
                     let center = UNUserNotificationCenter.current()
-                    _ = try? await center.requestAuthorization(options: [.alert, .sound])
+                    if await center.notificationSettings().authorizationStatus == .notDetermined {
+                        _ = try? await center.requestAuthorization(options: [.alert, .sound])
+                    }
                     let settings = await center.notificationSettings()
                     return settings.authorizationStatus == .authorized
                 },
@@ -125,6 +139,7 @@ final class AccountsViewModel: ObservableObject {
     private let defaults: UserDefaults
     private let deps: Dependencies
     private var timer: Timer?
+    private var wakeObserver: AnyCancellable?
 
     // MARK: - Init
 
@@ -141,8 +156,13 @@ final class AccountsViewModel: ObservableObject {
         self.defaults = defaults
         self.deps = deps
 
-        let raw = defaults.string(forKey: "menuBarDisplayMode") ?? "auto"
-        self.menuBarDisplayMode = MenuBarDisplayMode(rawValue: raw) ?? .auto
+        var settings = AppSettings.load(from: defaults)
+        let mode = settings.initialDisplayMode(from: defaults)
+        if mode == .sevenDay { settings.showFiveHourByDefault = false }
+        if mode == .fiveHour || mode == .auto { settings.showFiveHourByDefault = true }
+        self.settings = settings
+        self.menuBarDisplayMode = mode
+        self.displayNow = deps.now()
 
         // One-time migration from the single-account layout.
         let migration = AccountMigration(
@@ -156,7 +176,6 @@ final class AccountsViewModel: ObservableObject {
 
         for account in accounts { attachRuntime(for: account) }
 
-        Task { [weak self] in await self?.requestNotificationAuthorization() }
         Task { [weak self] in await self?.refreshAll() }
         if startTimer { scheduleTimer() }
     }
@@ -164,12 +183,23 @@ final class AccountsViewModel: ObservableObject {
     // MARK: - Menu bar
 
     var menuBarText: String {
-        MenuBarPresentation.compute(accounts: accounts, snapshots: snapshots, mode: menuBarDisplayMode).text
+        menuBarPresentation.text
     }
 
     var menuBarWorstPercent: Int? {
-        MenuBarPresentation.compute(accounts: accounts, snapshots: snapshots, mode: menuBarDisplayMode).worstPercent
+        menuBarPresentation.worstPercent
     }
+
+    private var menuBarPresentation: MenuBarPresentation.Result {
+        MenuBarPresentation.compute(accounts: accounts, snapshots: snapshots, mode: menuBarDisplayMode,
+                                    replaceExhausted: settings.replaceExhaustedWithCountdown, now: displayNow)
+    }
+
+    func setFiveHourDefault(_ enabled: Bool) {
+        menuBarDisplayMode = enabled ? .fiveHour : .sevenDay
+    }
+
+    func updateDisplayClock() { displayNow = deps.now() }
 
     var isSingleAccount: Bool { accounts.count == 1 }
 
@@ -179,7 +209,6 @@ final class AccountsViewModel: ObservableObject {
         var id: UUID { account.id }
         let snapshot: UsageSnapshot?
         let state: AccountRuntime.LoadingState
-        let history: [UsageDataPoint]
         let refreshTokenExpiresAt: Date?
     }
 
@@ -189,7 +218,6 @@ final class AccountsViewModel: ObservableObject {
                 account: account,
                 snapshot: snapshots[account.id],
                 state: runtimeStates[account.id] ?? .idle,
-                history: runtimes[account.id]?.history ?? [],
                 refreshTokenExpiresAt: refreshTokenExpiresAt[account.id]
             )
         }
@@ -211,9 +239,19 @@ final class AccountsViewModel: ObservableObject {
 
     private func scheduleTimer() {
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in await self?.refreshAll() }
+        let timer = Timer(timeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.updateDisplayClock()
+                await self?.refreshAll()
+            }
         }
+        timer.tolerance = 3
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+        wakeObserver = NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)
+            .sink { [weak self] _ in
+                Task { @MainActor [weak self] in self?.updateDisplayClock() }
+            }
     }
 
     // MARK: - Runtime wiring
@@ -225,9 +263,10 @@ final class AccountsViewModel: ObservableObject {
             fetchUsage: adapter.fetchUsage,
             refreshToken: adapter.refreshToken,
             now: deps.now,
-            onThresholdCrossing: { [weak self] crossing in
-                self?.sendNotification(account: account, crossing: crossing)
+            onAllowanceEvent: { [weak self] event in
+                self?.sendAllowanceNotification(accountID: id, event: event)
             },
+            warningThresholds: { [weak self] in self?.settings.warningThresholds ?? [80, 95] },
             onLoginExpiryCrossing: { [weak self] threshold, daysRemaining in
                 self?.sendLoginExpiryNotification(account: account, threshold: threshold, daysRemaining: daysRemaining)
             }
@@ -247,6 +286,7 @@ final class AccountsViewModel: ObservableObject {
     /// SwiftUI update. This is the explicit republish path.
     private func syncFromRuntime(_ id: UUID) {
         guard let runtime = runtimes[id] else { return }
+        updateDisplayClock()
         snapshots[id] = runtime.snapshot
         runtimeStates[id] = runtime.state
         needsReAuth[id] = runtime.needsReAuth
@@ -868,28 +908,29 @@ final class AccountsViewModel: ObservableObject {
 
     // MARK: - Notifications
 
-    private func requestNotificationAuthorization() async {
+    /// Called when the popup is opened, so any system prompt has a visible user action.
+    func requestNotificationAuthorization() async {
+        guard settings.notificationsEnabled else { return }
         notificationsAuthorized = await deps.requestNotificationAuthorization()
     }
 
-    private nonisolated func sendNotification(account: Account, crossing: ThresholdTracker.Crossing) {
-        let (windowName, windowKey) = crossing.window == .fiveHour
-            ? ("5-hour", "fiveHour")
-            : ("7-day", "sevenDay")
-
+    private func sendAllowanceNotification(accountID: UUID, event: AllowanceMonitor.Event) {
+        guard let account = accounts.first(where: { $0.id == accountID }) else { return }
         let content = UNMutableNotificationContent()
-        content.title = "\(account.label): Usage Warning"
-        content.body = crossing.threshold >= 90
-            ? "\(windowName) window at \(crossing.percent)% — approaching limit!"
-            : "\(windowName) window at \(crossing.percent)%"
+        let identifier: String
+        let name = "\(account.provider.displayName) · \(account.label)"
+        switch event {
+        case .restored(let window):
+            guard window == .fiveHour ? settings.notifyFiveHourReset : settings.notifyWeeklyReset else { return }
+            content.title = "\(name): Allowance restored"
+            content.body = window == .fiveHour ? "5-hour allowance is available again." : "Weekly allowance is available again."
+            identifier = "restored-\(accountID)-\(window.rawValue)"
+        case .warning:
+            // Usage thresholds still track normally, but only restoration posts an alert.
+            return
+        }
         content.sound = .default
-
-        let request = UNNotificationRequest(
-            identifier: "usage-\(account.id.uuidString)-\(windowKey)-\(crossing.threshold)",
-            content: content,
-            trigger: nil
-        )
-        deps.addNotification(request)
+        deps.addNotification(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
     }
 
     /// The pre-expiry warning for a refresh token about to die — the proactive nudge for the

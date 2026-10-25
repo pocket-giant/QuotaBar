@@ -12,7 +12,7 @@ enum MenuBarSelection {
     }
 
     /// Returns the active window for the given mode, or `nil` when there is no snapshot.
-    /// Auto mode picks the higher-utilization window; ties go to the 5-hour window (`>=`).
+    /// Auto mode always prefers the 5-hour window, including when it is exhausted.
     /// Percents are the *effective* values for `now`: a window whose reset has passed reads
     /// 0, so a stale pre-reset value never sticks and auto never favors an already-reset window.
     /// An account with no 5-hour window always resolves to the 7-day window, in every mode.
@@ -28,9 +28,7 @@ enum MenuBarSelection {
         switch mode {
         case .fiveHour:      useFiveHour = true
         case .sevenDay:      useFiveHour = false
-        // `.bars` shows both windows and doesn't use this selection; fall back to the
-        // auto rule so any text path (e.g. accessibility) still resolves a sensible window.
-        case .auto, .bars:   useFiveHour = fiveHour >= sevenDay
+        case .auto, .bars:   useFiveHour = true
         }
 
         return useFiveHour

@@ -10,8 +10,8 @@ struct PopoverLayoutTests {
     private func matrixOuterWidth(accounts: Int) -> CGFloat {
         UsageMatrixView.labelWidth
             + UsageMatrixView.columnWidth * CGFloat(accounts)
-            + CGFloat(max(accounts - 1, 0)) * 0.5
-            + 24
+            + CGFloat(max(accounts - 1, 0)) * UsageMatrixView.columnSpacing
+            + 32
     }
 
     @Test("A single account keeps the 320-pt column whatever the matrix would need")
@@ -24,14 +24,14 @@ struct PopoverLayoutTests {
 
     @Test("Four accounts fit a 1440-wide screen: full matrix width, no horizontal scrolling")
     func fourAccountsFit() {
-        let outer = matrixOuterWidth(accounts: 4)  // 74 + 4*172 + 1.5 + 24 = 787.5
+        let outer = matrixOuterWidth(accounts: 4)  // 4*236 + 30 + 32 = 1006
         #expect(PopoverLayout.width(accountCount: 4, matrixOuterWidth: outer, visibleWidth: 1440) == outer)
         #expect(PopoverLayout.scrolls(matrixOuterWidth: outer, visibleWidth: 1440) == false)
     }
 
     @Test("Ten accounts overflow a 1440-wide screen: clamped to the screen, scrolls")
     func tenAccountsScroll() {
-        let outer = matrixOuterWidth(accounts: 10)  // 74 + 10*172 + 4.5 + 24 = 1822.5
+        let outer = matrixOuterWidth(accounts: 10)  // 10*236 + 90 + 32 = 2482
         #expect(outer > 1440)
         #expect(PopoverLayout.width(accountCount: 10, matrixOuterWidth: outer, visibleWidth: 1440) == 1400)
         #expect(PopoverLayout.scrolls(matrixOuterWidth: outer, visibleWidth: 1440) == true)

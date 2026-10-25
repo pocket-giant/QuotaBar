@@ -2,9 +2,10 @@ import SwiftUI
 
 struct UsagePopoverView: View {
     @ObservedObject var viewModel: AccountsViewModel
+    @State private var settingsExpanded = false
 
     /// Horizontal padding wrapping the matrix (matches `matrix`'s `.padding(.horizontal, 12)`).
-    private static let matrixHPadding: CGFloat = 24
+    private static let matrixHPadding: CGFloat = 32
 
     private var accountCount: Int { viewModel.accounts.count }
 
@@ -12,7 +13,7 @@ struct UsagePopoverView: View {
     private var matrixGridWidth: CGFloat {
         UsageMatrixView.labelWidth
             + UsageMatrixView.columnWidth * CGFloat(accountCount)
-            + CGFloat(max(accountCount - 1, 0)) * 0.5
+            + CGFloat(max(accountCount - 1, 0)) * UsageMatrixView.columnSpacing
     }
 
     /// Grid plus its surrounding padding — the width the matrix actually needs.
@@ -36,34 +37,23 @@ struct UsagePopoverView: View {
 
             if viewModel.accounts.isEmpty {
                 emptyState
-            } else if accountCount == 1 {
-                // Single account keeps the taller, sparkline-forward layout.
-                singleAccountList
             } else {
                 matrix
             }
 
             addAccountControls
             Divider()
-            footer.padding(.horizontal, 16).padding(.vertical, 10)
+            footer.padding(.horizontal, 16).padding(.vertical, 12)
+                .background(Color.primary.opacity(0.03))
         }
         .frame(width: popoverWidth)
-    }
-
-    private var singleAccountList: some View {
-        VStack(spacing: 14) {
-            ForEach(viewModel.accountViews) { view in
-                AccountRowView(viewModel: viewModel, accountView: view)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .task { await viewModel.requestNotificationAuthorization() }
     }
 
     @ViewBuilder
     private var matrix: some View {
         let content = UsageMatrixView(viewModel: viewModel, columns: viewModel.accountViews)
-            .padding(.horizontal, 12).padding(.vertical, 10)
+            .padding(.horizontal, 16).padding(.vertical, 14)
         if PopoverLayout.scrolls(matrixOuterWidth: matrixOuterWidth, visibleWidth: visibleWidth) {
             ScrollView(.horizontal, showsIndicators: true) { content }
         } else {
@@ -74,27 +64,35 @@ struct UsagePopoverView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack {
-            // The symbol takes the title's own font so it scales with it and sits on the
-            // same cap height.
+        HStack(spacing: 10) {
             Image(systemName: "gauge.with.dots.needle.33percent")
-                .font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.accentColor)
-            Text("QuotaBar").font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold)).foregroundStyle(.white)
+                .frame(width: 28, height: 28)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(LinearGradient(colors: [Color.blue.opacity(0.85), Color.blue],
+                                         startPoint: .top, endPoint: .bottom)))
+            Text("QuotaBar").font(.system(size: 17, weight: .semibold))
             Spacer()
+            Button {
+                Task { await viewModel.refreshAll() }
+            } label: {
+                Image(systemName: "arrow.clockwise").font(.system(size: 13, weight: .medium))
+            }
+            .buttonStyle(.borderless).foregroundStyle(.secondary).help("Refresh all now")
         }
-        .padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+        .padding(.horizontal, 16).padding(.top, 16).padding(.bottom, 12)
     }
 
     private var emptyState: some View {
         VStack(spacing: 8) {
             Image(systemName: "person.crop.circle.badge.plus")
-                .font(.title2).foregroundStyle(.secondary)
-            Text("No accounts yet").font(.callout).fontWeight(.medium)
+                .font(.system(size: 28)).foregroundStyle(.secondary)
+            Text("No accounts yet").font(.system(size: 15, weight: .semibold))
             Text("Add an account below to start tracking its usage.")
-                .font(.caption).foregroundStyle(.secondary)
+                .font(.system(size: 13)).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity).padding(.vertical, 20).padding(.horizontal, 16)
+        .frame(maxWidth: .infinity).padding(.vertical, 28).padding(.horizontal, 16)
     }
 
     /// A provider's own logo for a menu item. Sizing and tint both live in the `NSImage`
@@ -120,42 +118,48 @@ struct UsagePopoverView: View {
                     } label: { Label { Text("OpenAI / Codex") } icon: { providerMark(.openAIMark) } }
                         .help("Opens auth.openai.com in your browser to sign in with your ChatGPT account")
                 } label: {
-                    Label("Add account…", systemImage: "plus.circle")
-                        .font(.system(size: 12, weight: .medium))
+                    Label("Add account", systemImage: "plus.circle.fill")
+                        .font(.system(size: 13, weight: .medium))
                         .frame(maxWidth: .infinity)
                 }
-                .controlSize(.small)
+                .menuStyle(.borderlessButton)
+                .foregroundStyle(Color.accentColor)
+                .controlSize(.large)
             } else {
                 LoginPill(viewModel: viewModel, accountID: nil)
             }
 
             if let error = viewModel.addAccountError {
-                Text(error).font(.caption2).foregroundStyle(.secondary)
+                Text(error).font(.system(size: 12)).foregroundStyle(.secondary)
                     .multilineTextAlignment(.center).lineLimit(3)
             } else {
-                Text("One account at a time — sign in with the browser.")
-                    .font(.caption2).foregroundStyle(.tertiary)
+                Text("Sign in with your browser, one account at a time.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16).padding(.vertical, 8)
+        .padding(.horizontal, 16).padding(.top, 2).padding(.bottom, 14)
     }
 
     // MARK: - Footer
 
     private var footer: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 2) {
-                Text("Bar:").font(.caption2).foregroundStyle(.secondary)
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Text("Menu bar").font(.system(size: 12)).foregroundStyle(.secondary).fixedSize()
                 Picker("", selection: $viewModel.menuBarDisplayMode) {
                     ForEach(MenuBarDisplayMode.allCases, id: \.self) { Text($0.label).tag($0) }
                 }
-                .pickerStyle(.segmented).fixedSize()
+                .pickerStyle(.segmented).labelsHidden()
+            }
+
+            HStack {
+                Text("Launch at login").font(.system(size: 13))
                 Spacer()
                 Toggle("Launch at login", isOn: Binding(
                     get: { viewModel.launchAtLogin },
                     set: { _ in viewModel.toggleLaunchAtLogin() }
                 ))
-                .toggleStyle(.switch).controlSize(.mini).font(.caption2)
+                .toggleStyle(.switch).labelsHidden().controlSize(.small)
             }
 
             if viewModel.notificationsAuthorized == false {
@@ -164,26 +168,32 @@ struct UsagePopoverView: View {
                         NSWorkspace.shared.open(url)
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Image(systemName: "bell.slash")
-                        Text("Notifications off — enable in System Settings").lineLimit(1)
+                        Text("Notifications off. Enable in System Settings").lineLimit(1)
                         Spacer(minLength: 0)
                     }
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
                 }
                 .buttonStyle(.borderless)
             }
 
+            DisclosureGroup(isExpanded: $settingsExpanded) {
+                SettingsView(viewModel: viewModel)
+            } label: {
+                Label("Settings", systemImage: "gearshape").font(.system(size: 13))
+            }
+
             HStack {
-                Button {
-                    Task { await viewModel.refreshAll() }
-                } label: {
-                    Image(systemName: "arrow.clockwise").font(.system(size: 12, weight: .medium))
+                // Credited fork: the original is MIT-licensed, by sam-pop.
+                HStack(spacing: 0) {
+                    Text("Fork of QuotaBar by sam-pop · ").foregroundStyle(.tertiary)
+                    Link("Pocket Giant", destination: URL(string: "https://pocketgiant.games/")!)
                 }
-                .buttonStyle(.borderless).help("Refresh all now")
+                .font(.system(size: 11))
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }
-                    .buttonStyle(.borderless).font(.system(size: 12, weight: .medium))
+                    .buttonStyle(.borderless).font(.system(size: 13, weight: .medium))
                     .foregroundStyle(.secondary)
             }
         }

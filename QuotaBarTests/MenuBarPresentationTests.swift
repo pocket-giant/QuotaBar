@@ -33,7 +33,7 @@ struct MenuBarPresentationTests {
         #expect(result.worstPercent == 47)
     }
 
-    @Test("Single account in auto mode picks the higher window")
+    @Test("Single account in Auto keeps 5-hour usage even when weekly is higher")
     func singleAuto() {
         let a = account("Personal")
         let result = MenuBarPresentation.compute(
@@ -41,8 +41,8 @@ struct MenuBarPresentationTests {
             snapshots: [a.id: snapshot(five: 20, seven: 80)],
             mode: .auto
         )
-        #expect(result.text == "80%")
-        #expect(result.worstPercent == 80)
+        #expect(result.text == "20%")
+        #expect(result.worstPercent == 20)
     }
 
     @Test("Two accounts compose compactly with worst-case percent")

@@ -15,7 +15,6 @@ struct AccountMigration {
     let deleteLegacyArtifacts: () -> Void
 
     private let legacySnapshotKey = "lastSnapshot"
-    private let legacyHistoryKey = "usageHistory"
 
     /// Runs the migration if it hasn't already. Returns the account list now in effect.
     @discardableResult
@@ -63,17 +62,13 @@ struct AccountMigration {
         return [account]
     }
 
-    /// Copies the legacy flat `lastSnapshot` / `usageHistory` values into the account's
+    /// Copies the legacy flat `lastSnapshot` value into the account's
     /// namespaced keys. Best-effort — a decode failure just leaves that piece empty.
     private func migrateLegacyState(to id: UUID) {
         let namespaced = AccountPersistence(defaults: defaults, accountID: id)
         if let data = defaults.data(forKey: legacySnapshotKey),
            let snapshot = try? JSONDecoder().decode(UsageSnapshot.self, from: data) {
             namespaced.saveSnapshot(snapshot)
-        }
-        if let data = defaults.data(forKey: legacyHistoryKey),
-           let history = try? JSONDecoder().decode([UsageDataPoint].self, from: data) {
-            namespaced.saveHistory(history)
         }
     }
 }

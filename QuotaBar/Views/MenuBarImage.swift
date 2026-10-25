@@ -4,30 +4,16 @@ import AppKit
 /// because `Text`/SF Symbols render monochrome in a `MenuBarExtra` label.
 enum MenuBarImage {
 
-    /// Level color for a percent, matching `UsageViewModel.color(for:)`.
-    static func levelColor(_ percent: Int) -> NSColor {
-        switch percent {
-        case ..<50: return .systemGreen
-        case ..<75: return .systemYellow
-        default:    return .systemRed
-        }
-    }
+    /// The menu bar is always blue, whatever the usage: severity (green / yellow / red) lives
+    /// in the popover, so the status item never changes colour as a limit gets close.
+    /// `percent` is kept so every call site reads the same as before.
+    static func levelColor(_ percent: Int) -> NSColor { .systemBlue }
 
-    /// Level color for a percent drawn as *text*, not as a filled dot: text needs far more
-    /// contrast to stay legible, and `systemYellow` at 11 pt on a light menu bar does not have
-    /// it. These are the popover mockups' severity tokens (`design-mockups/popover-redesign.html`,
-    /// `--lvl-low/mid/crit`), light / dark. The dynamic provider resolves them at draw time, so a
-    /// dark menu bar under a light desktop still gets the dark variant. Thresholds match
-    /// `levelColor`.
+    /// Blue for percentages drawn as *text* in the menu bar. A fixed pair that stays legible on a
+    /// light or dark menu bar; the dynamic provider resolves at draw time.
     static func textLevelColor(_ percent: Int) -> NSColor {
-        let light: UInt32, dark: UInt32
-        switch percent {
-        case ..<50: (light, dark) = (0x1A_7F_37, 0x3F_B9_50)
-        case ..<75: (light, dark) = (0x9A_67_00, 0xE3_B3_41)
-        default:    (light, dark) = (0xCF_22_2E, 0xF8_51_49)
-        }
-        return NSColor(name: nil) { appearance in
-            srgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light)
+        NSColor(name: nil) { appearance in
+            srgb(appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? 0x4C_A3_FF : 0x0A_66_E0)
         }
     }
 
@@ -38,10 +24,10 @@ enum MenuBarImage {
                 alpha: 1)
     }
 
-    /// The single-account 5h/7d badge (blue in auto mode, else the level color).
+    /// The single-account 5h/7d badge, always blue.
     static func badge(window: MenuBarDisplayMode, isAuto: Bool, percent: Int) -> NSImage {
         let badgeText = window == .fiveHour ? "5h" : "7d"
-        let bgColor = isAuto ? NSColor.systemBlue : levelColor(percent)
+        let bgColor = levelColor(percent)
         let size = NSSize(width: 18, height: 18)
 
         let image = NSImage(size: size, flipped: false) { rect in
@@ -72,7 +58,9 @@ enum MenuBarImage {
     static func multiAccount(
         accounts: [Account],
         snapshots: [UUID: UsageSnapshot],
-        mode: MenuBarDisplayMode
+        mode: MenuBarDisplayMode,
+        replaceExhausted: Bool = true,
+        now: Date = Date()
     ) -> NSImage {
         let prefixes = MultiAccountMenuBar.shortPrefixes(
             for: accounts.map(\.label),
@@ -88,11 +76,13 @@ enum MenuBarImage {
         let segments: [Segment] = zip(prefixes, accounts).map { prefix, account in
             let shape = ProviderShape.mark(for: account.provider, mixed: mixed)
             if let snapshot = snapshots[account.id],
-               let active = MenuBarSelection.active(mode: mode, snapshot: snapshot) {
+               let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 let tag = MultiAccountMenuBar.windowTag(mode: mode, window: active.window)
                 return Segment(dotColor: levelColor(active.percent),
                                valueColor: mixed ? textLevelColor(active.percent) : nil,
-                               prefix: prefix, value: "\(active.percent)%", tag: tag, shape: shape)
+                               prefix: prefix,
+                               value: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now),
+                               tag: tag, shape: shape)
             }
             return Segment(dotColor: nil, valueColor: nil, prefix: prefix, value: "--%", tag: nil, shape: shape)
         }

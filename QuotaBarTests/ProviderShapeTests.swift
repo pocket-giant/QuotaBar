@@ -120,7 +120,7 @@ struct ProviderShapeTests {
         #expect(mixedCompact.tiffRepresentation != singleCompact.tiffRepresentation)
     }
 
-    @Test("In a mixed compact bar the severity color lands on the percent, not on the prefix")
+    @Test("In a mixed compact bar the percent is blue and the prefix is not")
     func mixedCompactColorsThePercentOnly() throws {
         let a = Account(label: "P", provider: .anthropic)
         let c = Account(label: "W", provider: .openai)
@@ -134,22 +134,22 @@ struct ProviderShapeTests {
         func width(_ s: String) -> CGFloat {
             NSAttributedString(string: s, attributes: [.font: font]).size().width
         }
-        // 40% is the low level, green in either appearance; the prefix and mark are not.
-        func hasGreen(_ columns: Range<Int>) -> Bool {
+        // The menu bar is always blue, at any usage level; the prefix and mark are not.
+        func hasBlue(_ columns: Range<Int>) -> Bool {
             columns.contains { x in
                 (0..<rep.pixelsHigh).contains { y in
                     guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB),
                           c.alphaComponent > 0.5 else { return false }
-                    return c.greenComponent - max(c.redComponent, c.blueComponent) > 0.1
+                    return c.blueComponent - max(c.redComponent, c.greenComponent) > 0.1
                 }
             }
         }
         let textX: CGFloat = 1 + 11 + 3
-        #expect(!hasGreen(Int(textX * scale)..<Int((textX + width("P")) * scale)))
-        #expect(hasGreen(Int((textX + width("P ")) * scale)..<Int((textX + width("P 40%")) * scale)))
+        #expect(!hasBlue(Int(textX * scale)..<Int((textX + width("P")) * scale)))
+        #expect(hasBlue(Int((textX + width("P ")) * scale)..<Int((textX + width("P 40%")) * scale)))
     }
 
-    @Test("Severity text colors switch with the appearance, unlike the dot's system colors")
+    @Test("Menu-bar text color is blue at every level and switches with the appearance")
     func textLevelColorsResolvePerAppearance() throws {
         func resolved(_ percent: Int, _ name: NSAppearance.Name) throws -> NSColor {
             var color: NSColor?
@@ -166,9 +166,7 @@ struct ProviderShapeTests {
                 #expect(zip(got, want).allSatisfy { abs($0 - $1) < 0.005 }, "\(percent) \(name): \(got)")
             }
         }
-        try check(30, light: 0x1A_7F_37, dark: 0x3F_B9_50)
-        try check(60, light: 0x9A_67_00, dark: 0xE3_B3_41)
-        try check(90, light: 0xCF_22_2E, dark: 0xF8_51_49)
+        for percent in [30, 60, 90, 100] { try check(percent, light: 0x0A_66_E0, dark: 0x4C_A3_FF) }
     }
 
     @Test("In mixed mode a column with no reading still gets its provider mark")

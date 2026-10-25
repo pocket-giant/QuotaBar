@@ -15,7 +15,8 @@ struct MenuBarLabel: View {
             // Stacked 5h/7d mini-bars per account (single or multi).
             Image(nsImage: MenuBarImage.twoStat(
                 accounts: viewModel.accounts,
-                snapshots: viewModel.snapshots
+                snapshots: viewModel.snapshots,
+                now: viewModel.displayNow
             ))
         } else if viewModel.isSingleAccount {
             singleAccountLabel
@@ -23,7 +24,9 @@ struct MenuBarLabel: View {
             Image(nsImage: MenuBarImage.multiAccount(
                 accounts: viewModel.accounts,
                 snapshots: viewModel.snapshots,
-                mode: viewModel.menuBarDisplayMode
+                mode: viewModel.menuBarDisplayMode,
+                replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
+                now: viewModel.displayNow
             ))
         }
     }
@@ -34,7 +37,8 @@ struct MenuBarLabel: View {
     private var singleAccountLabel: some View {
         let account = viewModel.accounts[0]
         let snapshot = viewModel.snapshots[account.id]
-        let active = MenuBarSelection.active(mode: viewModel.menuBarDisplayMode, snapshot: snapshot)
+        let active = MenuBarSelection.active(mode: viewModel.menuBarDisplayMode, snapshot: snapshot,
+                                             now: viewModel.displayNow)
         let needsRefresh = viewModel.needsReAuth[account.id] ?? false
 
         HStack(spacing: 4) {

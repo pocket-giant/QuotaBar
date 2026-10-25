@@ -168,36 +168,57 @@ struct AccountsViewModelLoginTests {
         #expect(loginExpiryNotices.first?.content.body.contains("3 days") == false)
     }
 
-    @Test("Threshold notifications are titled without a vendor name; the add-flow fallback label is 'Add account'")
-    func notificationCopyIsVendorNeutral() async {
+    @Test("Both providers suppress usage warnings and preserve reset alerts and notification settings",
+          arguments: Provider.allCases, [true, false])
+    func allowanceNotifications(provider: Provider, enabled: Bool) async {
         let calls = Calls()
         let sharedDefaults = ephemeralDefaults()
-        let account = Account(label: "Codex", accountUUID: "cg-1", provider: .openai)
+        let account = Account(label: "Work", accountUUID: "cg-1", provider: provider)
+        sharedDefaults.set(enabled, forKey: "notifyFiveHourReset")
+        sharedDefaults.set(enabled, forKey: "notifyWeeklyReset")
+        // Even a persisted warning preference must never enable low-quota alerts.
+        sharedDefaults.set(enabled, forKey: "usageWarnings")
         let accountsStore = AccountsStore(defaults: sharedDefaults)
         accountsStore.save([account])
         let credentialStore = InMemoryAccountCredentialStore([
-            account.id: CachedCredentials(accessToken: "t", refreshToken: "r", expiresAt: nil, provider: .openai)
+            account.id: CachedCredentials(accessToken: "t", refreshToken: "r", expiresAt: nil, provider: provider)
         ])
         var deps = makeDeps(calls: calls, legacyCredentials: nil)
         deps.addNotification = { calls.notifications.append($0) }
-        deps.adapters.openai = ProviderAdapter(
-            provider: .openai, supportsPaste: false,
+        let adapter = ProviderAdapter(
+            provider: provider, supportsPaste: false,
             beginLogin: { _, _, _ in throw OAuthLoginStartError.portBusy },
             exchange: { _, _ in throw OAuthLoginError.transient },
             fetchIdentity: { _ in AccountIdentity(uuid: "cg-1", email: nil, displayName: nil) },
             fetchUsage: { _ in
-                UsageResponse(fiveHour: UsagePeriod(utilization: 95, resetsAt: "2026-09-09T00:00:00Z"),
-                              sevenDay: UsagePeriod(utilization: 10, resetsAt: "2026-09-13T00:00:00Z"))
+                calls.fetchUsage += 1
+                let percent = [10.0, 80, 95, 100, 0, 0][min(calls.fetchUsage - 1, 5)]
+                return UsageResponse(fiveHour: UsagePeriod(utilization: percent, resetsAt: "1970-01-01T00:00:05Z"),
+                                     sevenDay: UsagePeriod(utilization: percent, resetsAt: "1970-01-01T00:00:05Z"))
             },
             refreshToken: { _ in throw StubError() })
+        deps.adapters = ProviderAdapters(anthropic: adapter, openai: adapter)
+        deps.now = { Date(timeIntervalSince1970: Double(calls.fetchUsage + 1)) }
         let vm = AccountsViewModel(accountsStore: accountsStore, credentialStore: credentialStore,
                                    defaults: sharedDefaults, startTimer: false, deps: deps)
 
+        #expect(vm.settings.notificationsEnabled == enabled)
+        for _ in 0..<4 { await vm.refreshAll() }
+        #expect(calls.notifications.isEmpty)
+        #expect(vm.snapshots[account.id]?.fiveHourPercent == 100)
         await vm.refreshAll()
-        let usage = calls.notifications.first { $0.identifier.hasPrefix("usage-") }
-        #expect(usage?.content.title == "Codex: Usage Warning")
+        await vm.refreshAll()
+        #expect(calls.notifications.count == (enabled ? 2 : 0))
+        #expect(calls.notifications.allSatisfy { $0.identifier.hasPrefix("restored-") })
+        if enabled {
+            #expect(Set(calls.notifications.map(\.content.body)) ==
+                    ["5-hour allowance is available again.", "Weekly allowance is available again."])
+            #expect(calls.notifications.allSatisfy {
+                $0.content.title == "\(provider.displayName) · Work: Allowance restored"
+            })
+        }
 
-        await vm.beginAddAccountLogin(provider: .openai)
+        await vm.beginAddAccountLogin(provider: provider)
         let login = calls.notifications.first { $0.identifier == "login-outcome-add" }
         #expect(login?.content.title == "Add account: login didn't finish")
     }

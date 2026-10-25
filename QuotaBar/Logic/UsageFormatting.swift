@@ -4,6 +4,24 @@ import Foundation
 /// `UsageViewModel` (which is `@MainActor`) so nonisolated presentation code can use them.
 enum UsageFormatting {
 
+    /// Whole minutes rounded up, so an allowance still blocked for 20 seconds reads 1m.
+    /// Never synthesizes a timestamp or displays a zero-length countdown.
+    static func exhaustedCountdown(until date: Date?, now: Date = Date()) -> String? {
+        guard let date, date > now else { return nil }
+        let minutes = Int(ceil(date.timeIntervalSince(now) / 60))
+        if minutes >= 60 { return "\(minutes / 60)h \(minutes % 60)m" }
+        return "\(minutes)m"
+    }
+
+    static func menuBarValue(_ active: MenuBarSelection.Active,
+                             replaceExhausted: Bool = true, now: Date = Date()) -> String {
+        if replaceExhausted, active.window == .fiveHour, active.percent >= 100,
+           let countdown = exhaustedCountdown(until: active.resetsAt, now: now) {
+            return countdown
+        }
+        return "\(active.percent)%"
+    }
+
     /// Coarse countdown to a reset ("2d 3h" / "4h 12m" / "18m" / "now" / "—"). Matches the
     /// historical `UsageViewModel.resetCountdown` output exactly.
     static func resetCountdown(until date: Date?, now: Date = Date()) -> String {

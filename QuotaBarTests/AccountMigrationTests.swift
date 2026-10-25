@@ -35,12 +35,10 @@ struct AccountMigrationTests {
     func freshMigration() throws {
         let defaults = ephemeralDefaults()
         let credStore = InMemoryAccountCredentialStore()
-        // Seed legacy flat snapshot/history under the old keys.
+        // Seed legacy flat snapshot under the old keys.
         let snap = UsageSnapshot(fiveHourPercent: 55, sevenDayPercent: 66,
                                  fiveHourResetsAt: nil, sevenDayResetsAt: nil, fetchedAt: Date())
         defaults.set(try JSONEncoder().encode(snap), forKey: "lastSnapshot")
-        defaults.set(try JSONEncoder().encode([UsageDataPoint(timestamp: Date(), fiveHourPercent: 1, sevenDayPercent: 2)]),
-                     forKey: "usageHistory")
 
         var deleted = false
         let migration = makeMigration(defaults: defaults, credentialStore: credStore,
@@ -54,10 +52,9 @@ struct AccountMigrationTests {
         #expect(account.accountUUID == nil)   // identity backfilled later
         // Credentials moved into the account's slot in the map.
         #expect(try credStore.loadAll()[account.id]?.accessToken == "sk-ant-oat01-legacy")
-        // Legacy flat snapshot/history copied to namespaced keys.
+        // Legacy flat snapshot copied to namespaced keys.
         let ns = AccountPersistence(defaults: defaults, accountID: account.id)
         #expect(ns.loadSnapshot()?.fiveHourPercent == 55)
-        #expect(ns.loadHistory().count == 1)
         #expect(deleted)   // legacy artifacts cleaned up
     }
 

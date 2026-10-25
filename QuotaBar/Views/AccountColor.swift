@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Stable per-account identity color, keyed by the account's position in the (stable) list.
-/// Distinguishes columns in the comparison matrix and tints each account's sparkline.
+/// Distinguishes the account cards from one another.
 /// This is an *identity* hue — distinct from `UsageColor`, which encodes severity.
 enum AccountColor {
     private static let palette: [Color] = [.blue, .purple, .teal, .pink, .orange, .indigo]

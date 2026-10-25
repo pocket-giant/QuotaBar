@@ -87,18 +87,13 @@ struct UsageSnapshotTests {
         #expect(decoded.sevenDayPercent == 40)
     }
 
-    @Test("Snapshots and history persisted before the 5-hour window became optional still decode")
+    @Test("Snapshots persisted before the 5-hour window became optional still decode")
     func legacyPersistedJSONDecodes() throws {
         let snapshotJSON = #"{"fiveHourPercent":42,"sevenDayPercent":17,"fiveHourResetsAt":770000100,"sevenDayResetsAt":770600000,"fetchedAt":770000000}"#
         let snapshot = try JSONDecoder().decode(UsageSnapshot.self, from: Data(snapshotJSON.utf8))
         #expect(snapshot.fiveHourPercent == 42)
         #expect(snapshot.fiveHourResetsAt == Date(timeIntervalSinceReferenceDate: 770_000_100))
         #expect(snapshot.sevenDayPercent == 17)
-
-        let historyJSON = #"[{"timestamp":770000000,"fiveHourPercent":10,"sevenDayPercent":20}]"#
-        let history = try JSONDecoder().decode([UsageDataPoint].self, from: Data(historyJSON.utf8))
-        #expect(history.first?.fiveHourPercent == 10)
-        #expect(history.first?.sevenDayPercent == 20)
     }
 }
 

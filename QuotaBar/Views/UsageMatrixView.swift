@@ -1,21 +1,21 @@
 import SwiftUI
 
-/// Multi-account comparison layout: usage windows are rows, accounts are columns, so the
-/// same stat lines up horizontally and the highest account in each row is flagged "peak".
-/// Used for 2+ accounts; a single account keeps the taller `AccountRowView` layout.
+/// The account cards: one card per account, side by side, each holding that account's 5-hour
+/// and weekly usage. A single account fills the popover; two or more sit in a row and the
+/// highest account in each window is flagged "Highest".
 struct UsageMatrixView: View {
     @ObservedObject var viewModel: AccountsViewModel
     let columns: [AccountsViewModel.AccountView]
 
-    static let labelWidth: CGFloat = 74
-    static let columnWidth: CGFloat = 172
+    /// No label column any more: every card carries its own labels.
+    static let labelWidth: CGFloat = 0
+    static let columnWidth: CGFloat = 236
+    static let columnSpacing: CGFloat = 10
 
     @State private var editingID: UUID?
     @State private var draftLabel = ""
     @State private var draftShortCode = ""
 
-    /// One row of the metric per account: effective percent + reset, or nil when the account
-    /// has no snapshot / doesn't report that metric.
     private struct CellData {
         let percent: Int
         let resetsAt: Date?
@@ -28,103 +28,105 @@ struct UsageMatrixView: View {
 
     var body: some View {
         // One tick keeps every window's effective percent (and the leader flags) rolling over
-        // the instant a reset passes, matching the popover sections.
+        // the instant a reset passes.
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let now = context.date
-            VStack(spacing: 0) {
-                headerRow(now: now)
-                metricRow(title: "5-Hour", subtitle: "session", now: now) { snap in
-                    snap.fiveHourEffectivePercent(now: now).map {
-                        CellData(percent: $0, resetsAt: snap.fiveHourResetsAt)
+            let fiveHour = leaderFlags(now: now) { snap in snap.fiveHourEffectivePercent(now: now) }
+            let weekly = leaderFlags(now: now) { snap in snap.sevenDayEffectivePercent(now: now) }
+            HStack(alignment: .top, spacing: Self.columnSpacing) {
+                // Keyed by account id, not position: reordering moves a card's view identity
+                // with its account, so the edit popover follows the account.
+                ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
+                    card(column, index: index, now: now,
+                         fiveHourLeader: fiveHour[index], weeklyLeader: weekly[index])
+                }
+            }
+        }
+    }
+
+    private func leaderFlags(now: Date, _ value: (UsageSnapshot) -> Int?) -> [Bool] {
+        UsageComparison.leaders(columns.map { $0.snapshot.flatMap(value) })
+    }
+
+    // MARK: - Card
+
+    private func card(_ column: AccountsViewModel.AccountView, index: Int, now: Date,
+                      fiveHourLeader: Bool, weeklyLeader: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            header(column, index: index, now: now)
+            if let snap = column.snapshot {
+                if let five = snap.fiveHourEffectivePercent(now: now) {
+                    usageBlock("5-hour session", percent: five, resetsAt: snap.fiveHourResetsAt,
+                               leader: fiveHourLeader, live: true, now: now)
+                }
+                usageBlock("Weekly", percent: snap.sevenDayEffectivePercent(now: now),
+                           resetsAt: snap.sevenDayResetsAt, leader: weeklyLeader, live: false, now: now)
+                if let limits = snap.modelLimits, !limits.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        ForEach(limits) { modelLine($0, now: now) }
                     }
                 }
-                // Per-model limits are weekly windows, so they live inside this row's cells
-                // rather than in rows of their own.
-                metricRow(title: "7-Day", subtitle: "weekly", now: now, perModel: true) { snap in
-                    CellData(percent: snap.sevenDayEffectivePercent(now: now),
-                             resetsAt: snap.sevenDayResetsAt)
-                }
-                trendRow
+            } else if case .error(let message) = column.state {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12)).foregroundStyle(.orange).lineLimit(4)
+            } else {
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 80)
             }
         }
+        .padding(16)
+        .frame(minWidth: Self.columnWidth, maxWidth: .infinity, alignment: .topLeading)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.primary.opacity(0.045)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Color.primary.opacity(0.08), lineWidth: 0.5))
+        .popover(isPresented: editBinding(for: column.account.id), arrowEdge: .bottom) { editForm(column.account) }
     }
 
-    // MARK: - Header row
+    // MARK: - Header
 
-    private func headerRow(now: Date) -> some View {
-        row {
-            cornerCell
-            // Keyed by account id, not position: reordering moves a cell's view identity with
-            // its account, so the edit popover attached to it follows the account instead of
-            // dismissing and re-presenting on whatever account slid into that slot. The index
-            // is still what the position-based bits (identity color, divider) read.
-            ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                columnDivider(index)
-                headerCell(column, index: index, now: now)
-            }
-        }
-        .overlay(alignment: .bottom) { Divider() }
-    }
-
-    private var cornerCell: some View {
-        Color.clear.frame(width: Self.labelWidth, height: 1)
-    }
-
-    private func headerCell(_ column: AccountsViewModel.AccountView, index: Int, now: Date) -> some View {
+    private func header(_ column: AccountsViewModel.AccountView, index: Int, now: Date) -> some View {
         let account = column.account
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Circle().fill(AccountColor.color(forIndex: index)).frame(width: 7, height: 7)
-                Text(account.label).font(.system(size: 12, weight: .semibold)).lineLimit(1)
-                Spacer(minLength: 2)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Circle().fill(AccountColor.color(forIndex: index)).frame(width: 9, height: 9)
+                Text(account.label).font(.system(size: 15, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 4)
                 Button {
                     draftLabel = account.label
                     draftShortCode = account.shortCode ?? ""
                     editingID = account.id
-                } label: { Image(systemName: "pencil").font(.system(size: 9)) }
-                    .buttonStyle(.borderless).foregroundStyle(.tertiary).help("Rename / set menu-bar code")
+                } label: { Image(systemName: "pencil").font(.system(size: 12)) }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Rename / set menu-bar code")
                 Button(role: .destructive) {
                     Task { await viewModel.remove(account.id) }
-                } label: { Image(systemName: "trash").font(.system(size: 9)) }
-                    .buttonStyle(.borderless).foregroundStyle(.tertiary).help("Remove this account")
+                } label: { Image(systemName: "trash").font(.system(size: 12)) }
+                    .buttonStyle(.borderless).foregroundStyle(.secondary).help("Remove this account")
             }
             if let email = account.email, email != account.label {
-                Text(email).font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
+                Text(email).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
             }
             if mixedProviders {
-                HStack(spacing: 3) {
-                    // The same asset the menu bar draws, via `ProviderShape` so no asset name
-                    // is spelled out here. Claude's mark in its brand orange; OpenAI's brand
-                    // mark is black/white, so it takes the label's tertiary style. Never the
-                    // severity color.
+                HStack(spacing: 4) {
+                    // The same asset the menu bar draws. Claude's mark in its brand orange;
+                    // OpenAI's is black/white so it takes the secondary style.
                     if let mark = ProviderShape.mark(for: account.provider, mixed: true).image {
                         Image(nsImage: mark)
                             .renderingMode(.template)
-                            .resizable().scaledToFit().frame(height: 10)
+                            .resizable().scaledToFit().frame(height: 11)
                             .foregroundStyle(account.provider == .anthropic
                                              ? AnyShapeStyle(Color(nsColor: ProviderShape.claudeBrand))
-                                             : AnyShapeStyle(HierarchicalShapeStyle.tertiary))
+                                             : AnyShapeStyle(HierarchicalShapeStyle.secondary))
                     }
-                    Text(account.provider.displayName.uppercased()).font(.system(size: 8, weight: .semibold)).tracking(0.4)
+                    Text(account.provider.displayName).font(.system(size: 11, weight: .medium))
                 }
-                .foregroundStyle(.tertiary)
-                .padding(.horizontal, 5).padding(.vertical, 1)
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.primary.opacity(0.12), lineWidth: 0.5))
+                .foregroundStyle(.secondary)
             }
             freshness(column, now: now)
-            // A separate line, not a replacement for the one above: staleness and the
-            // per-account refresh button it carries stay visible for the entire 7-day
-            // warning window, same as `AccountRowView`'s layout.
             loginExpiryLine(column, now: now)
         }
-        .padding(.horizontal, 10).padding(.vertical, 9)
-        .frame(width: Self.columnWidth, alignment: .leading)
-        .popover(isPresented: editBinding(for: account.id), arrowEdge: .bottom) { editForm(account) }
     }
 
     @ViewBuilder
     private func freshness(_ column: AccountsViewModel.AccountView, now: Date) -> some View {
-        // A login that needs starting — or one already running — replaces the freshness line:
+        // A login that needs starting, or one already running, replaces the freshness line:
         // how stale the numbers are matters less than the fact that they've stopped updating.
         if viewModel.loginAffordance(for: column.account.id) != .none {
             LoginPill(viewModel: viewModel, accountID: column.account.id, layout: .compact)
@@ -140,20 +142,17 @@ struct UsageMatrixView: View {
                 .buttonStyle(.plain).help("Refresh this account now")
             } else {
                 Label("Updated \(ago)", systemImage: "circle.fill")
-                    .font(.system(size: 9)).foregroundStyle(.secondary)
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
                     .labelStyle(DotLabelStyle())
             }
         } else if case .error = column.state {
-            Text("Couldn't load").font(.system(size: 9)).foregroundStyle(.orange)
+            Text("Couldn't load").font(.system(size: 11)).foregroundStyle(.orange)
         } else {
-            Text("Loading…").font(.system(size: 9)).foregroundStyle(.tertiary)
+            Text("Loading…").font(.system(size: 11)).foregroundStyle(.secondary)
         }
     }
 
-    /// Gated on `loginAffordance == .none` — same as `freshness` above's `LoginPill`
-    /// branch — so this never shows alongside the dead-login pill, which already speaks
-    /// for the account. A plain `if` with no wrapping container, so it contributes nothing
-    /// to the enclosing `VStack` when there's no warning to show.
+    /// Gated on `loginAffordance == .none`, so this never shows alongside the dead-login pill.
     @ViewBuilder
     private func loginExpiryLine(_ column: AccountsViewModel.AccountView, now: Date) -> some View {
         if viewModel.loginAffordance(for: column.account.id) == .none,
@@ -167,7 +166,7 @@ struct UsageMatrixView: View {
         }
     }
 
-    /// Provider-aware like `LoginPill`'s own help — this line starts the same login.
+    /// Provider-aware like `LoginPill`'s own help: this line starts the same login.
     private func loginHelp(for accountID: UUID) -> String {
         switch viewModel.loginProvider(for: accountID) {
         case .anthropic: return "Opens claude.ai in your browser to sign in"
@@ -175,128 +174,52 @@ struct UsageMatrixView: View {
         }
     }
 
-    // MARK: - Metric rows
+    // MARK: - Usage
 
-    /// `perModel` adds each account's per-model weekly limits inside its own cell — only the
-    /// 7-Day row asks for them, since that is the window they measure.
-    private func metricRow(title: String, subtitle: String, now: Date, perModel: Bool = false,
-                           value: @escaping (UsageSnapshot) -> CellData?) -> some View {
-        let data: [CellData?] = columns.map { $0.snapshot.flatMap(value) }
-        let flags = UsageComparison.leaders(data.map { $0?.percent })
-        return row {
-            labelCell(title, subtitle)
-            ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                columnDivider(index)
-                metricCell(data[index], leader: flags[index], now: now,
-                           models: perModel ? (column.snapshot?.modelLimits ?? []) : [])
-            }
-        }
-        .overlay(alignment: .bottom) { Divider().opacity(0.5) }
-    }
-
-    @ViewBuilder
-    private func metricCell(_ data: CellData?, leader: Bool, now: Date, models: [ModelLimit]) -> some View {
-        Group {
-            if let data {
-                let color: Color = UsageColor.level(data.percent)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text("\(data.percent)%")
-                            .font(.system(size: 18, weight: .bold, design: .rounded))
-                            .monospacedDigit().foregroundStyle(color)
-                        Spacer(minLength: 2)
-                        if leader {
-                            Text("PEAK").font(.system(size: 8, weight: .heavy))
-                                .tracking(0.5).foregroundStyle(.orange)
-                        }
-                    }
-                    ProgressBarView(percent: data.percent, color: color)
-                    Text("resets \(UsageFormatting.resetCountdown(until: data.resetsAt))")
-                        .font(.system(size: 10, design: .monospaced))
-                        .foregroundStyle(.tertiary).lineLimit(1)
-                    // Per-model lines, in the order the snapshot lists them. Secondary weight
-                    // throughout: these are a breakdown of the row above, and PEAK stays on the
-                    // shared rows. A column without model limits renders nothing at all.
-                    ForEach(models) { limit in
-                        modelLine(limit, now: now)
-                    }
+    private func usageBlock(_ title: String, percent: Int, resetsAt: Date?, leader: Bool, live: Bool, now: Date) -> some View {
+        let color: Color = UsageColor.level(percent)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(title.uppercased()).font(.system(size: 11, weight: .semibold))
+                    .tracking(0.6).foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                if leader {
+                    Text("Highest").font(.system(size: 11, weight: .semibold)).foregroundStyle(.orange)
+                        .padding(.horizontal, 7).padding(.vertical, 1)
+                        .background(Capsule().fill(Color.orange.opacity(0.14)))
                 }
-            } else {
-                Text("—").font(.system(size: 15)).foregroundStyle(.quaternary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-        }
-        .padding(.horizontal, 10).padding(.vertical, 9)
-        .frame(width: Self.columnWidth, alignment: .leading)
-        .overlay(alignment: .leading) {
-            if leader {
-                Capsule().fill(Color.orange).frame(width: 2.5).padding(.vertical, 8)
+            .frame(height: 20)
+            Text("\(percent)%")
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .monospacedDigit().foregroundStyle(color)
+            ProgressBarView(percent: percent, color: color)
+            Label {
+                Text("Resets in \(live ? UsageFormatting.liveCountdown(until: resetsAt, now: now) : UsageFormatting.resetCountdown(until: resetsAt, now: now))")
+                    .font(.system(size: 12)).monospacedDigit()
+            } icon: {
+                Image(systemName: "clock").font(.system(size: 11))
             }
+            .foregroundStyle(.secondary)
         }
     }
 
-    /// One per-model weekly limit, folded under the 7-Day numbers. Same rollover and
-    /// "critical" rule as the single-account `AccountRowView` section.
+    /// One per-model weekly limit, under the weekly numbers. A limit the provider flags as
+    /// critical shows red while it still has usage.
     private func modelLine(_ limit: ModelLimit, now: Date) -> some View {
         let shown = UsageSnapshot.effectivePercent(limit.percent, resetsAt: limit.resetsAt, now: now)
         let color: Color = (limit.severity == "critical" && shown > 0) ? .red : UsageColor.level(shown)
-        return VStack(alignment: .leading, spacing: 2) {
+        return VStack(alignment: .leading, spacing: 5) {
             HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(limit.modelName).font(.system(size: 10, weight: .medium))
+                Text(limit.modelName).font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: 2)
-                Text("\(shown)%").font(.system(size: 10, weight: .semibold))
+                Text("\(shown)%").font(.system(size: 12, weight: .semibold))
                     .monospacedDigit().foregroundStyle(color)
             }
-            ProgressBarView(percent: shown, color: color, height: 3)
-            Text("resets \(UsageFormatting.resetCountdown(until: limit.resetsAt))")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.tertiary).lineLimit(1)
-        }
-        .padding(.top, 2)
-    }
-
-    // MARK: - Trend row
-
-    private var trendRow: some View {
-        row {
-            labelCell("Trend", "recent")
-            ForEach(Array(columns.enumerated()), id: \.element.id) { index, column in
-                columnDivider(index)
-                Group {
-                    if column.history.count >= 2 {
-                        SparklineView(dataPoints: column.history)
-                    } else {
-                        Text("—").font(.system(size: 15)).foregroundStyle(.quaternary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-                .padding(.horizontal, 10).padding(.vertical, 9)
-                .frame(width: Self.columnWidth, alignment: .leading)
-            }
-        }
-    }
-
-    // MARK: - Shared cell scaffolding
-
-    private func labelCell(_ title: String, _ subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Text(title).font(.system(size: 11, weight: .semibold)).foregroundStyle(.secondary)
-            Text(subtitle).font(.system(size: 9)).foregroundStyle(.tertiary)
-        }
-        .padding(.leading, 4).padding(.trailing, 6).padding(.top, 11)
-        .frame(width: Self.labelWidth, alignment: .leading)
-        .frame(maxHeight: .infinity, alignment: .top)
-    }
-
-    private func row<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
-        HStack(alignment: .top, spacing: 0) { content() }
-    }
-
-    @ViewBuilder
-    private func columnDivider(_ index: Int) -> some View {
-        if index > 0 {
-            Rectangle().fill(Color.primary.opacity(0.08)).frame(width: 0.5)
+            ProgressBarView(percent: shown, color: color, height: 5)
+            Text("Resets in \(UsageFormatting.resetCountdown(until: limit.resetsAt, now: now))")
+                .font(.system(size: 11)).foregroundStyle(.tertiary).lineLimit(1)
         }
     }
 
@@ -343,22 +266,22 @@ struct UsageMatrixView: View {
     // MARK: - Bits
 
     private func pill(text: String, systemImage: String, tint: Color) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: systemImage).font(.system(size: 8))
-            Text(text).font(.system(size: 9, weight: .semibold))
+        HStack(spacing: 4) {
+            Image(systemName: systemImage).font(.system(size: 10))
+            Text(text).font(.system(size: 11, weight: .semibold))
         }
         .foregroundStyle(tint)
-        .padding(.horizontal, 7).padding(.vertical, 2)
+        .padding(.horizontal, 8).padding(.vertical, 3)
         .background(Capsule().fill(tint.opacity(0.14)))
         .overlay(Capsule().stroke(tint.opacity(0.35), lineWidth: 0.5))
     }
 }
 
-/// A tiny leading status dot for the "Updated Ns ago" line, tinted by the label's foreground.
+/// A tiny leading status dot for the "Updated Ns ago" line.
 private struct DotLabelStyle: LabelStyle {
     func makeBody(configuration: Configuration) -> some View {
-        HStack(spacing: 4) {
-            configuration.icon.font(.system(size: 5)).foregroundStyle(.green)
+        HStack(spacing: 5) {
+            configuration.icon.font(.system(size: 6)).foregroundStyle(.green)
             configuration.title
         }
     }

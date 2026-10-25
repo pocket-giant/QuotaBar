@@ -1,5 +1,7 @@
 # QuotaBar
 
+> **Fork notice.** This is a fork of [sam-pop/QuotaBar](https://github.com/sam-pop/QuotaBar) (MIT), modified by Simon Appleton / [Pocket Giant](https://pocketgiant.games/): usage graphs removed, a menu bar that is always blue, and a redesigned popover. All credit for the original app goes to its author.
+
 A lightweight macOS menu bar app that shows your Claude and OpenAI (Codex) usage limits at a glance. Zero dependencies — just Apple frameworks.
 
 > Formerly ClaudeUsageBar; renamed when OpenAI/Codex support landed. Existing installs keep working — the bundle identifier and Keychain item are unchanged.

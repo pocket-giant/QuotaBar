@@ -78,7 +78,7 @@ struct AccountRuntimeTests {
                               deps: deps, onChange: onChange)
     }
 
-    @Test("Successful refresh stores the snapshot, records history, and fires onChange")
+    @Test("Successful refresh stores the snapshot, and fires onChange")
     func refreshSuccess() async throws {
         let defaults = ephemeralDefaults()
         var changeCount = 0
@@ -91,7 +91,6 @@ struct AccountRuntimeTests {
         #expect(runtime.snapshot?.fiveHourPercent == 30)
         #expect(runtime.snapshot?.sevenDayPercent == 60)
         #expect(runtime.state == .loaded(try #require(runtime.snapshot)))
-        #expect(runtime.history.count == 1)
         #expect(changeCount >= 1)
         // Persisted so a fresh runtime on the same account reloads it.
         #expect(defaults.data(forKey: "lastSnapshot-\(runtime.id.uuidString)") != nil)

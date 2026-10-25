@@ -104,13 +104,13 @@ struct UsageSnapshot: Codable {
         self.modelLimits = modelLimits
     }
 
-    init(from response: UsageResponse) {
+    init(from response: UsageResponse, fetchedAt: Date = Date()) {
         self.init(
             fiveHourPercent: response.fiveHour.map { Int($0.utilization.rounded()) },
             sevenDayPercent: Int(response.sevenDay.utilization.rounded()),
             fiveHourResetsAt: response.fiveHour.flatMap { Self.parseISO8601($0.resetsAt) },
             sevenDayResetsAt: Self.parseISO8601(response.sevenDay.resetsAt),
-            fetchedAt: Date(),
+            fetchedAt: fetchedAt,
             modelLimits: Self.extractModelLimits(from: response.limits)
         )
     }
@@ -173,12 +173,4 @@ enum MenuBarDisplayMode: String, Codable, CaseIterable {
         case .bars: return "Bars"
         }
     }
-}
-
-// MARK: - History data point
-
-struct UsageDataPoint: Codable {
-    let timestamp: Date
-    let fiveHourPercent: Int?
-    let sevenDayPercent: Int
 }

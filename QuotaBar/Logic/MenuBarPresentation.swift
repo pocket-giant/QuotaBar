@@ -18,7 +18,9 @@ enum MenuBarPresentation {
     static func compute(
         accounts: [Account],
         snapshots: [UUID: UsageSnapshot],
-        mode: MenuBarDisplayMode
+        mode: MenuBarDisplayMode,
+        replaceExhausted: Bool = true,
+        now: Date = Date()
     ) -> Result {
         guard !accounts.isEmpty else {
             return Result(text: "--%", worstPercent: nil)
@@ -28,12 +30,11 @@ enum MenuBarPresentation {
         if accounts.count == 1 {
             let account = accounts[0]
             guard let snapshot = snapshots[account.id],
-                  let active = MenuBarSelection.active(mode: mode, snapshot: snapshot) else {
+                  let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) else {
                 return Result(text: "--%", worstPercent: nil)
             }
-            let countdown = UsageFormatting.resetCountdown(until: active.resetsAt)
-            let suffix = (countdown == "—" || countdown == "now") ? "" : " · \(countdown)"
-            return Result(text: "\(active.percent)%\(suffix)", worstPercent: active.percent)
+            return Result(text: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now),
+                          worstPercent: active.percent)
         }
 
         // N≥2: compact composed form with deduped, user-overridable prefixes.
@@ -44,9 +45,9 @@ enum MenuBarPresentation {
         var percents: [Int] = []
         let segments = zip(prefixes, accounts).map { prefix, account -> String in
             if let snapshot = snapshots[account.id],
-               let active = MenuBarSelection.active(mode: mode, snapshot: snapshot) {
+               let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 percents.append(active.percent)
-                return "\(prefix) \(active.percent)%"
+                return "\(prefix) \(UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now))"
             }
             return "\(prefix) --%"
         }

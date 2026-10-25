@@ -3,6 +3,7 @@ import AppKit
 
 @main
 struct QuotaBarApp: App {
+    @NSApplicationDelegateAdaptor(NotificationDelegate.self) private var appDelegate
     @StateObject private var viewModel: AccountsViewModel
 
     init() {
