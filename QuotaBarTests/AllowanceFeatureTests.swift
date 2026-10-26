@@ -19,6 +19,19 @@ struct SessionMenuBarTests {
         }
     }
 
+    @Test("90%+ held for over 10 minutes is read as a switched account and shows the countdown")
+    func sustainedHighUsage() throws {
+        let active = try #require(MenuBarSelection.active(mode: .fiveHour,
+            snapshot: snapshot(92, reset: now.addingTimeInterval(3_600)), now: now))
+        #expect(UsageFormatting.menuBarValue(active, highSince: nil, now: now) == "92%")
+        #expect(UsageFormatting.menuBarValue(active, highSince: now.addingTimeInterval(-600), now: now) == "92%")
+        #expect(UsageFormatting.menuBarValue(active, highSince: now.addingTimeInterval(-601), now: now) == "1h 0m")
+        #expect(UsageFormatting.menuBarValue(active, replaceExhausted: false,
+                                             highSince: now.addingTimeInterval(-900), now: now) == "92%")
+        let low = MenuBarSelection.Active(window: .fiveHour, percent: 89, resetsAt: now.addingTimeInterval(3_600))
+        #expect(UsageFormatting.menuBarValue(low, highSince: now.addingTimeInterval(-900), now: now) == "89%")
+    }
+
     @Test("Countdowns round up and never invent a reset")
     func formatting() {
         for (seconds, expected) in [(1.0, "1m"), (60, "1m"), (1_140, "19m"), (4_260, "1h 11m"), (7_201, "2h 1m")] {

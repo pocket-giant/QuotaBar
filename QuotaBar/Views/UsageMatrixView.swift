@@ -55,30 +55,43 @@ struct UsageMatrixView: View {
                       fiveHourLeader: Bool, weeklyLeader: Bool) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             header(column, index: index)
-            if let snap = column.snapshot {
-                HStack(alignment: .top, spacing: 12) {
-                    if let five = snap.fiveHourEffectivePercent(now: now) {
-                        gauge("5-hour", percent: five, resetsAt: snap.fiveHourResetsAt,
-                              leader: fiveHourLeader, fiveHour: true, now: now)
+            availability(column, now: now)
+            if viewModel.cardStates[column.id]?.isCollapsed != true {
+                if let snap = column.snapshot {
+                    HStack(alignment: .top, spacing: 12) {
+                        if let five = snap.fiveHourEffectivePercent(now: now) {
+                            gauge("5-hour", percent: five, resetsAt: snap.fiveHourResetsAt,
+                                  leader: fiveHourLeader, fiveHour: true, now: now)
+                        }
+                        gauge("Weekly", percent: snap.sevenDayEffectivePercent(now: now),
+                              resetsAt: snap.sevenDayResetsAt, leader: weeklyLeader, fiveHour: false, now: now)
                     }
-                    gauge("Weekly", percent: snap.sevenDayEffectivePercent(now: now),
-                          resetsAt: snap.sevenDayResetsAt, leader: weeklyLeader, fiveHour: false, now: now)
+                    .frame(maxWidth: .infinity)
+                    if let limits = snap.modelLimits, !limits.isEmpty {
+                        VStack(alignment: .leading, spacing: 10) {
+                            ForEach(limits) { modelLine($0, now: now) }
+                        }
+                    }
+                } else if case .error(let message) = column.state {
+                    Label(message, systemImage: "exclamationmark.triangle.fill")
+                        .font(.system(size: 12)).foregroundStyle(.orange).lineLimit(4)
+                } else {
+                    ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 110)
                 }
-                .frame(maxWidth: .infinity)
-                if let limits = snap.modelLimits, !limits.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(limits) { modelLine($0, now: now) }
+                VStack(alignment: .leading, spacing: 6) {
+                    freshness(column, now: now)
+                    loginExpiryLine(column, now: now)
+                }
+                if viewModel.cardStates[column.id]?.suggestsCollapse(snapshot: column.snapshot, now: now) == true {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Long wait for allowance")
+                            .font(.system(size: 11)).foregroundStyle(palette.secondary)
+                        HStack {
+                            Button("Collapse card") { viewModel.setCardCollapsed(column.id, true) }
+                            Button("Keep open") { viewModel.dismissCollapseSuggestion(column.id) }
+                        }.controlSize(.small)
                     }
                 }
-            } else if case .error(let message) = column.state {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.system(size: 12)).foregroundStyle(.orange).lineLimit(4)
-            } else {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 110)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                freshness(column, now: now)
-                loginExpiryLine(column, now: now)
             }
         }
         .padding(16)
@@ -121,25 +134,68 @@ struct UsageMatrixView: View {
                 }
             }
             Spacer(minLength: 4)
-            Menu {
-                Button("Rename…") {
-                    draftLabel = account.label
-                    draftShortCode = account.shortCode ?? ""
-                    editingID = account.id
-                }
-                Divider()
-                Button("Remove account", role: .destructive) {
-                    Task { await viewModel.remove(account.id) }
-                }
+            Button {
+                viewModel.setCardCollapsed(account.id, !(viewModel.cardStates[account.id]?.isCollapsed ?? false))
             } label: {
-                Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
+                Image(systemName: viewModel.cardStates[account.id]?.isCollapsed == true ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(palette.secondary)
-                    .frame(width: 24, height: 24)
-                    .contentShape(Rectangle())
+                    .frame(width: 24, height: 24).contentShape(Rectangle())
             }
-            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-            .help("Rename, set menu-bar code, or remove")
+            .buttonStyle(.plain)
+            .help(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand account" : "Collapse account")
+            .accessibilityLabel(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand \(account.label)" : "Collapse \(account.label)")
+            if viewModel.cardStates[account.id]?.isCollapsed != true {
+                Menu {
+                    Button("Rename…") {
+                        draftLabel = account.label
+                        draftShortCode = account.shortCode ?? ""
+                        editingID = account.id
+                    }
+                    Divider()
+                    Button("Remove account", role: .destructive) {
+                        Task { await viewModel.remove(account.id) }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis").font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.secondary)
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+                .help("Rename, set menu-bar code, or remove")
+            }
         }
+    }
+
+    @ViewBuilder
+    private func availability(_ column: AccountsViewModel.AccountView, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if viewModel.needsReAuth[column.id] == true {
+                Button("Login expired · Log in again") { Task { await viewModel.beginLogin(column.id) } }
+                    .buttonStyle(.plain).foregroundStyle(.orange)
+            } else if case .error(let message) = column.state {
+                Text("Update failed").foregroundStyle(.orange).help(message)
+            } else if let snapshot = column.snapshot {
+                if AccountCardState.isExhausted(snapshot) {
+                    Text("Allowance exhausted").foregroundStyle(.orange)
+                    if let reset = AccountCardState.resetAt(snapshot) {
+                        Text(reset > now
+                             ? "Resets in \(UsageFormatting.resetCountdown(until: reset, now: now))"
+                             : "Reset due · awaiting refresh")
+                            .foregroundStyle(palette.secondary)
+                    } else {
+                        Text("Reset time unavailable").foregroundStyle(palette.secondary)
+                    }
+                } else {
+                    Text(now.timeIntervalSince(snapshot.fetchedAt) > 300 ? "Availability unknown · stale" : "Available")
+                        .foregroundStyle(palette.secondary)
+                }
+            } else {
+                Text("Checking availability…").foregroundStyle(palette.secondary)
+            }
+        }
+        .font(.system(size: 11, weight: .medium))
     }
 
     @ViewBuilder

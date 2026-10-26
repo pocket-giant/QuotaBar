@@ -27,6 +27,20 @@ struct AccountPersistence {
         self.accountID = accountID
     }
 
+    func loadCardState() -> AccountCardState {
+        guard let data = defaults.data(forKey: "accountCard-\(accountID.uuidString)"),
+              let state = try? JSONDecoder().decode(AccountCardState.self, from: data) else {
+            return AccountCardState()
+        }
+        return state
+    }
+
+    func saveCardState(_ state: AccountCardState) {
+        if let data = try? JSONEncoder().encode(state) {
+            defaults.set(data, forKey: "accountCard-\(accountID.uuidString)")
+        }
+    }
+
     func saveSnapshot(_ snapshot: UsageSnapshot) {
         if let data = try? JSONEncoder().encode(snapshot) {
             defaults.set(data, forKey: snapshotKey)

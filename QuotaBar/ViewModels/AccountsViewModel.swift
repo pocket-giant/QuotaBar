@@ -11,8 +11,18 @@ import Combine
 @MainActor
 final class AccountsViewModel: ObservableObject {
 
+    @Published private(set) var cardStates: [UUID: AccountCardState] = [:]
     @Published private(set) var accounts: [Account] = []
     @Published private(set) var snapshots: [UUID: UsageSnapshot] = [:]
+    /// When each account's 5-hour percent first reached `UsageFormatting.assumedSwitchedPercent`.
+    /// Cleared as soon as it drops below. Not published: it only changes alongside `snapshots`.
+    /// Persisted so a relaunch does not restart the 10 minutes.
+    private(set) var highUsageSince: [UUID: Date] = [:] {
+        didSet {
+            let stored = Dictionary(uniqueKeysWithValues: highUsageSince.map { ($0.key.uuidString, $0.value.timeIntervalSince1970) })
+            defaults.set(stored, forKey: "highUsageSince")
+        }
+    }
     @Published private(set) var runtimeStates: [UUID: AccountRuntime.LoadingState] = [:]
     @Published private(set) var needsReAuth: [UUID: Bool] = [:]
     /// Mirrors each account's `AccountRuntime.refreshTokenExpiresAt`, refreshed alongside its
@@ -154,6 +164,10 @@ final class AccountsViewModel: ObservableObject {
         self.credentialStore = credentialStore
         self.credentials = AccountCredentialManager(store: credentialStore)
         self.defaults = defaults
+        let stored = defaults.dictionary(forKey: "highUsageSince") as? [String: Double] ?? [:]
+        self.highUsageSince = Dictionary(uniqueKeysWithValues: stored.compactMap { key, seconds in
+            UUID(uuidString: key).map { ($0, Date(timeIntervalSince1970: seconds)) }
+        })
         self.deps = deps
 
         var settings = AppSettings.load(from: defaults)
@@ -194,7 +208,8 @@ final class AccountsViewModel: ObservableObject {
 
     private var menuBarPresentation: MenuBarPresentation.Result {
         MenuBarPresentation.compute(accounts: accounts, snapshots: snapshots, mode: menuBarDisplayMode,
-                                    replaceExhausted: settings.replaceExhaustedWithCountdown, now: displayNow)
+                                    replaceExhausted: settings.replaceExhaustedWithCountdown,
+                                    highSince: highUsageSince, now: displayNow)
     }
 
     func setFiveHourDefault(_ enabled: Bool) {
@@ -223,6 +238,25 @@ final class AccountsViewModel: ObservableObject {
                 refreshTokenExpiresAt: refreshTokenExpiresAt[account.id]
             )
         }
+    }
+
+    func setCardCollapsed(_ id: UUID, _ collapsed: Bool) {
+        var state = cardStates[id] ?? AccountCardState()
+        state.isCollapsed = collapsed
+        state.suggestionDismissed = true
+        saveCardState(state, for: id)
+    }
+
+    func dismissCollapseSuggestion(_ id: UUID) {
+        var state = cardStates[id] ?? AccountCardState()
+        state.suggestionDismissed = true
+        saveCardState(state, for: id)
+    }
+
+    private func saveCardState(_ state: AccountCardState, for id: UUID) {
+        guard cardStates[id] != state else { return }
+        cardStates[id] = state
+        AccountPersistence(defaults: defaults, accountID: id).saveCardState(state)
     }
 
     // MARK: - Refresh
@@ -260,6 +294,7 @@ final class AccountsViewModel: ObservableObject {
 
     private func attachRuntime(for account: Account) {
         let id = account.id
+        cardStates[id] = AccountPersistence(defaults: defaults, accountID: id).loadCardState()
         let adapter = deps.adapters.adapter(for: account.provider)
         let runtimeDeps = AccountRuntime.Dependencies(
             fetchUsage: adapter.fetchUsage,
@@ -289,6 +324,19 @@ final class AccountsViewModel: ObservableObject {
     private func syncFromRuntime(_ id: UUID) {
         guard let runtime = runtimes[id] else { return }
         updateDisplayClock()
+        if let snapshot = runtime.snapshot {
+            if let percent = snapshot.fiveHourEffectivePercent(now: deps.now()),
+               percent >= UsageFormatting.assumedSwitchedPercent {
+                if highUsageSince[id] == nil { highUsageSince[id] = deps.now() }
+            } else if highUsageSince[id] != nil {
+                highUsageSince[id] = nil
+            }
+        }
+        if case .loaded(let snapshot) = runtime.state {
+            var cardState = cardStates[id] ?? AccountCardState()
+            cardState.record(snapshot)
+            saveCardState(cardState, for: id)
+        }
         snapshots[id] = runtime.snapshot
         runtimeStates[id] = runtime.state
         needsReAuth[id] = runtime.needsReAuth
@@ -855,6 +903,7 @@ final class AccountsViewModel: ObservableObject {
         runtimes[id]?.stop()
         runtimes[id] = nil
         snapshots[id] = nil
+        highUsageSince[id] = nil
         runtimeStates[id] = nil
         needsReAuth[id] = nil
         refreshTokenExpiresAt[id] = nil

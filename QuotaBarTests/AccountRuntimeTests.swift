@@ -437,3 +437,65 @@ struct AccountRuntimeTests {
         #expect(runtime.snapshot?.fiveHourPercent == 42)
     }
 }
+
+@Suite("Independent account failure regression")
+@MainActor
+struct IndependentAccountFailureTests {
+    @Test("A malformed account retains history and credentials while another updates")
+    func isolation() async throws {
+        let suite = "IndependentRefresh-\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let bad = UUID(), good = UUID()
+        let store = InMemoryAccountCredentialStore([
+            bad: CachedCredentials(accessToken: "bad", refreshToken: "r1", expiresAt: nil),
+            good: CachedCredentials(accessToken: "good", refreshToken: "r2", expiresAt: nil)])
+        let manager = AccountCredentialManager(store: store)
+        let prior = UsageSnapshot(fiveHourPercent: 50, sevenDayPercent: 60,
+                                  fiveHourResetsAt: nil, sevenDayResetsAt: nil, fetchedAt: .distantPast)
+        let persistence = AccountPersistence(defaults: defaults, accountID: bad)
+        persistence.saveSnapshot(prior)
+        let response = UsageResponse(fiveHour: UsagePeriod(utilization: 0, resetsAt: nil),
+                                     sevenDay: UsagePeriod(utilization: 10, resetsAt: nil))
+        var badCalls = 0, goodCalls = 0, refreshCalls = 0
+        let failing = AccountRuntime(id: bad, credentials: manager, persistence: persistence,
+            deps: .init(fetchUsage: { _ in
+                badCalls += 1
+                return try UsageAPIService.decode(Data("{}".utf8))
+            }, refreshToken: { refreshCalls += 1; return $0 }, now: Date.init))
+        let working = AccountRuntime(id: good, credentials: manager,
+            persistence: AccountPersistence(defaults: defaults, accountID: good),
+            deps: .init(fetchUsage: { _ in goodCalls += 1; return response },
+                        refreshToken: { refreshCalls += 1; return $0 }, now: Date.init))
+        async let first: Void = failing.refresh()
+        async let second: Void = working.refresh()
+        _ = await (first, second)
+        #expect(badCalls == 1)
+        #expect(goodCalls == 1)
+        #expect(refreshCalls == 0)
+        #expect(failing.snapshot?.fiveHourPercent == 50)
+        #expect(persistence.loadSnapshot()?.fiveHourPercent == 50)
+        if case .error = failing.state {} else { Issue.record("Malformed response must stay visible") }
+        #expect(working.snapshot?.sevenDayPercent == 10)
+        #expect(try manager.credentials(for: bad)?.refreshToken == "r1")
+        #expect(try manager.credentials(for: good)?.refreshToken == "r2")
+    }
+
+    @Test("A refreshed session that is still rejected offers reauthentication")
+    func renewedSessionRejected() async throws {
+        let suite = "RejectedRefresh-\(UUID())"
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let id = UUID()
+        let store = InMemoryAccountCredentialStore([
+            id: CachedCredentials(accessToken: "old", refreshToken: "r", expiresAt: nil)])
+        var requests = 0
+        let runtime = AccountRuntime(id: id, credentials: AccountCredentialManager(store: store),
+            persistence: AccountPersistence(defaults: defaults, accountID: id),
+            deps: .init(fetchUsage: { _ in requests += 1; throw UsageAPIError.invalidResponse(401) },
+                        refreshToken: { $0 }, now: Date.init))
+        await runtime.refresh()
+        #expect(runtime.needsReAuth)
+        #expect(requests == 2)
+    }
+}

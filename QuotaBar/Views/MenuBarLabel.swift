@@ -26,6 +26,7 @@ struct MenuBarLabel: View {
                 snapshots: viewModel.snapshots,
                 mode: viewModel.menuBarDisplayMode,
                 replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
+                highSince: viewModel.highUsageSince,
                 showNames: viewModel.settings.showAccountNames,
                 now: viewModel.displayNow
             ))
@@ -43,6 +44,7 @@ struct MenuBarLabel: View {
         let needsRefresh = viewModel.needsReAuth[account.id] ?? false
         let countdown = active.map {
             UsageFormatting.showsFiveHourCountdown($0, replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
+                                                   highSince: viewModel.highUsageSince[account.id],
                                                    now: viewModel.displayNow)
         } ?? false
 

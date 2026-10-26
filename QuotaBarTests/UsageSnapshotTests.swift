@@ -120,3 +120,36 @@ struct UsageAPIServiceDecodeTests {
         #expect(response.sevenDay.utilization == 20)
     }
 }
+
+@Suite("Nullable usage reset regression")
+struct NullableUsageResetTests {
+    @Test("Live response shape: unused five-hour window has null or absent resets_at")
+    func unusedWindow() throws {
+        for reset in [",\"resets_at\":null", ""] {
+            let body = "{\"five_hour\":{\"utilization\":0\(reset)},\"seven_day\":{\"utilization\":100,\"resets_at\":\"2026-10-29T12:00:00Z\"}}"
+            let response = try UsageAPIService.decode(Data(body.utf8))
+            let snapshot = UsageSnapshot(from: response)
+            #expect(snapshot.fiveHourPercent == 0)
+            #expect(snapshot.fiveHourResetsAt == nil)
+            #expect(snapshot.sevenDayPercent == 100)
+            #expect(snapshot.sevenDayResetsAt != nil)
+        }
+    }
+
+    @Test("Both reset dates can be unknown without losing usage")
+    func unknownResets() throws {
+        let body = #"{"five_hour":{"utilization":0,"resets_at":null},"seven_day":{"utilization":0,"resets_at":null}}"#
+        let snapshot = UsageSnapshot(from: try UsageAPIService.decode(Data(body.utf8)))
+        #expect(snapshot.sevenDayResetsAt == nil)
+        #expect(snapshot.sevenDayPercent == 0)
+    }
+
+    @Test("Missing utilization, wrong types and non-JSON remain visible errors")
+    func malformed() {
+        for body in [#"{"five_hour":{"resets_at":null},"seven_day":{"utilization":0}}"#,
+                     #"{"five_hour":{"utilization":"unknown"},"seven_day":{"utilization":0}}"#,
+                     "<html>challenge</html>"] {
+            #expect(throws: UsageAPIError.self) { try UsageAPIService.decode(Data(body.utf8)) }
+        }
+    }
+}

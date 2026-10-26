@@ -20,6 +20,7 @@ enum MenuBarPresentation {
         snapshots: [UUID: UsageSnapshot],
         mode: MenuBarDisplayMode,
         replaceExhausted: Bool = true,
+        highSince: [UUID: Date] = [:],
         now: Date = Date()
     ) -> Result {
         guard !accounts.isEmpty else {
@@ -33,7 +34,8 @@ enum MenuBarPresentation {
                   let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) else {
                 return Result(text: "--%", worstPercent: nil)
             }
-            return Result(text: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now),
+            return Result(text: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted,
+                                                          highSince: highSince[account.id], now: now),
                           worstPercent: active.percent)
         }
 
@@ -47,7 +49,9 @@ enum MenuBarPresentation {
             if let snapshot = snapshots[account.id],
                let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 percents.append(active.percent)
-                return "\(prefix) \(UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now))"
+                let value = UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted,
+                                                         highSince: highSince[account.id], now: now)
+                return "\(prefix) \(value)"
             }
             return "\(prefix) --%"
         }

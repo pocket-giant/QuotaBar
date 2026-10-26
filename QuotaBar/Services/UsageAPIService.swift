@@ -18,6 +18,19 @@ enum UsageAPIError: LocalizedError {
         case .invalidResponse(let code):
             return "HTTP \(code)"
         case .decodingFailed(let error):
+            if let decoding = error as? DecodingError {
+                let context: DecodingError.Context
+                let reason: String
+                switch decoding {
+                case .keyNotFound(let key, let c): context = c; reason = "Missing \(key.stringValue)"
+                case .valueNotFound(_, let c): context = c; reason = "Missing value"
+                case .typeMismatch(_, let c): context = c; reason = "Unexpected type"
+                case .dataCorrupted(let c): context = c; reason = "Invalid data"
+                @unknown default: return "Usage response could not be decoded"
+                }
+                let path = context.codingPath.map(\.stringValue).joined(separator: ".")
+                return "Usage response: \(reason)\(path.isEmpty ? "" : " at \(path)")"
+            }
             return "Decode error: \(error.localizedDescription)"
         }
     }

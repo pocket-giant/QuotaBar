@@ -13,9 +13,18 @@ enum UsageFormatting {
         return "\(minutes)m"
     }
 
+    /// A 5-hour window sitting at or above this percent for `assumedSwitchedAfter` is taken to
+    /// mean the user has moved to another account, so the menu bar counts down to the next
+    /// session instead of showing a figure that is no longer changing.
+    static let assumedSwitchedPercent = 90
+    static let assumedSwitchedAfter: TimeInterval = 10 * 60
+
+    /// - highSince: when this account's 5-hour percent first reached `assumedSwitchedPercent`
+    ///   (nil when it is below it or unknown).
     static func menuBarValue(_ active: MenuBarSelection.Active,
-                             replaceExhausted: Bool = true, now: Date = Date()) -> String {
-        if replaceExhausted, active.window == .fiveHour, active.percent >= 100,
+                             replaceExhausted: Bool = true, highSince: Date? = nil,
+                             now: Date = Date()) -> String {
+        if showsFiveHourCountdown(active, replaceExhausted: replaceExhausted, highSince: highSince, now: now),
            let countdown = exhaustedCountdown(until: active.resetsAt, now: now) {
             return countdown
         }
@@ -25,8 +34,11 @@ enum UsageFormatting {
     /// True when the menu bar shows the exhausted 5-hour window as a reset countdown rather
     /// than a percent. Those countdowns are drawn blue; everything else keeps its level color.
     static func showsFiveHourCountdown(_ active: MenuBarSelection.Active,
-                                       replaceExhausted: Bool = true, now: Date = Date()) -> Bool {
-        replaceExhausted && active.window == .fiveHour && active.percent >= 100
+                                       replaceExhausted: Bool = true, highSince: Date? = nil,
+                                       now: Date = Date()) -> Bool {
+        let sustainedHigh = highSince.map { now.timeIntervalSince($0) > assumedSwitchedAfter } ?? false
+        return replaceExhausted && active.window == .fiveHour
+            && (active.percent >= 100 || (active.percent >= assumedSwitchedPercent && sustainedHigh))
             && exhaustedCountdown(until: active.resetsAt, now: now) != nil
     }
 

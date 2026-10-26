@@ -167,7 +167,9 @@ struct ProviderShapeTests {
             }
         }
         try check(30, light: 0x1A_7F_37, dark: 0x3F_B9_50)
-        try check(60, light: 0x9A_67_00, dark: 0xE3_B3_41)
+        try check(69, light: 0x1A_7F_37, dark: 0x3F_B9_50)
+        try check(70, light: 0xB3_54_00, dark: 0xFF_9F_0A)
+        try check(89, light: 0xB3_54_00, dark: 0xFF_9F_0A)
         try check(90, light: 0xCF_22_2E, dark: 0xF8_51_49)
     }
 

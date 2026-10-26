@@ -124,7 +124,7 @@ final class AccountRuntime {
         } catch let error as UsageAPIError {
             guard startEpoch == epoch else { return }
             state = .error(error.localizedDescription)
-            needsReAuth = error.needsReLogin
+            needsReAuth = error.needsReLogin || error.isAuthError
         } catch {
             guard startEpoch == epoch else { return }
             state = .error(error.localizedDescription)

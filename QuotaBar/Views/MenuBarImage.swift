@@ -7,14 +7,14 @@ enum MenuBarImage {
     /// Level color for a percent, matching `UsageViewModel.color(for:)`.
     static func levelColor(_ percent: Int) -> NSColor {
         switch percent {
-        case ..<50: return .systemGreen
-        case ..<75: return .systemYellow
+        case ..<70: return .systemGreen
+        case ..<90: return .systemOrange
         default:    return .systemRed
         }
     }
 
     /// Level color for a percent drawn as *text*, not as a filled dot: text needs far more
-    /// contrast to stay legible, and `systemYellow` at 11 pt on a light menu bar does not have
+    /// contrast to stay legible, and `systemOrange` at 11 pt on a light menu bar does not have
     /// it. These are the popover mockups' severity tokens (`design-mockups/popover-redesign.html`,
     /// `--lvl-low/mid/crit`), light / dark. The dynamic provider resolves them at draw time, so a
     /// dark menu bar under a light desktop still gets the dark variant. Thresholds match
@@ -22,8 +22,8 @@ enum MenuBarImage {
     static func textLevelColor(_ percent: Int) -> NSColor {
         let light: UInt32, dark: UInt32
         switch percent {
-        case ..<50: (light, dark) = (0x1A_7F_37, 0x3F_B9_50)
-        case ..<75: (light, dark) = (0x9A_67_00, 0xE3_B3_41)
+        case ..<70: (light, dark) = (0x1A_7F_37, 0x3F_B9_50)
+        case ..<90: (light, dark) = (0xB3_54_00, 0xFF_9F_0A)
         default:    (light, dark) = (0xCF_22_2E, 0xF8_51_49)
         }
         return NSColor(name: nil) { appearance in
@@ -97,6 +97,7 @@ enum MenuBarImage {
         snapshots: [UUID: UsageSnapshot],
         mode: MenuBarDisplayMode,
         replaceExhausted: Bool = true,
+        highSince: [UUID: Date] = [:],
         showNames: Bool = true,
         now: Date = Date()
     ) -> NSImage {
@@ -116,11 +117,13 @@ enum MenuBarImage {
             if let snapshot = snapshots[account.id],
                let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 let tag = MultiAccountMenuBar.windowTag(mode: mode, window: active.window)
-                let countdown = UsageFormatting.showsFiveHourCountdown(active, replaceExhausted: replaceExhausted, now: now)
+                let countdown = UsageFormatting.showsFiveHourCountdown(active, replaceExhausted: replaceExhausted,
+                                                                  highSince: highSince[account.id], now: now)
                 return Segment(dotColor: countdown ? .systemBlue : levelColor(active.percent),
                                valueColor: countdown ? countdownColor : (mixed ? textLevelColor(active.percent) : nil),
                                prefix: prefix,
-                               value: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted, now: now),
+                               value: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted,
+                                                                   highSince: highSince[account.id], now: now),
                                tag: tag, shape: shape)
             }
             return Segment(dotColor: nil, valueColor: nil, prefix: prefix, value: "--%", tag: nil, shape: shape)
