@@ -17,6 +17,8 @@ struct ProviderShapeTests {
         #expect(ProviderShape.mark(for: .openai, mixed: false) == .dot)
         #expect(ProviderShape.mark(for: .anthropic, mixed: true) == .claudeMark)
         #expect(ProviderShape.mark(for: .openai, mixed: true) == .openAIMark)
+        #expect(ProviderShape.mark(for: .anthropic, mixed: false, showProviderMark: true) == .claudeMark)
+        #expect(ProviderShape.mark(for: .openai, mixed: false, showProviderMark: true) == .openAIMark)
     }
 
     @Test("The dot's path stays inside its rect and is non-empty")
@@ -118,6 +120,29 @@ struct ProviderShapeTests {
         // The 11 pt provider mark is wider than the 7 pt dot it replaces.
         #expect(mixedCompact.size.width > singleCompact.size.width)
         #expect(mixedCompact.tiffRepresentation != singleCompact.tiffRepresentation)
+    }
+
+    @Test("A single visible account can retain its provider logo")
+    func singleAccountProviderMark() {
+        let claude = Account(label: "Work", provider: .anthropic)
+        let openAI = Account(label: "Personal", provider: .openai)
+        let snapshot = UsageSnapshot(fiveHourPercent: 29, sevenDayPercent: 40,
+            fiveHourResetsAt: nil, sevenDayResetsAt: nil, fetchedAt: Date())
+        let snapshots = [claude.id: snapshot, openAI.id: snapshot]
+        let claudeImage = MenuBarImage.multiAccount(accounts: [claude], snapshots: snapshots,
+            mode: .fiveHour, showProviderMarks: true)
+        let openAIImage = MenuBarImage.multiAccount(accounts: [openAI], snapshots: snapshots,
+            mode: .fiveHour, showProviderMarks: true)
+        #expect(claudeImage.size.height == 18)
+        #expect(openAIImage.size.height == 18)
+        #expect(claudeImage.size.width > MenuBarImage.multiAccount(accounts: [claude], snapshots: snapshots,
+            mode: .fiveHour).size.width)
+        #expect(openAIImage.size.width > MenuBarImage.multiAccount(accounts: [openAI], snapshots: snapshots,
+            mode: .fiveHour).size.width)
+        let claudeBars = MenuBarImage.twoStat(accounts: [claude], snapshots: snapshots, showProviderMarks: true)
+        let openAIBars = MenuBarImage.twoStat(accounts: [openAI], snapshots: snapshots, showProviderMarks: true)
+        #expect(claudeBars.size.width > MenuBarImage.twoStat(accounts: [claude], snapshots: snapshots).size.width)
+        #expect(openAIBars.size.width > MenuBarImage.twoStat(accounts: [openAI], snapshots: snapshots).size.width)
     }
 
     @Test("In a mixed compact bar the severity color lands on the percent, not on the prefix")

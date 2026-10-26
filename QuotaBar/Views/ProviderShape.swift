@@ -1,7 +1,7 @@
 import AppKit
 
 /// The mark drawn before each account's segment in the menu bar. A dot — filled with the
-/// severity color — unless providers are mixed; then each provider's own logo from the asset
+/// severity color — unless provider marks are requested; then each provider's own logo from the asset
 /// catalog, drawn in its brand color (Claude) or the label color (OpenAI, whose mark is
 /// black/white), never in the severity color.
 enum ProviderShape: Equatable {
@@ -9,8 +9,8 @@ enum ProviderShape: Equatable {
     case claudeMark
     case openAIMark
 
-    static func mark(for provider: Provider, mixed: Bool) -> ProviderShape {
-        guard mixed else { return .dot }
+    static func mark(for provider: Provider, mixed: Bool, showProviderMark: Bool = false) -> ProviderShape {
+        guard mixed || showProviderMark else { return .dot }
         switch provider {
         case .anthropic: return .claudeMark
         case .openai: return .openAIMark

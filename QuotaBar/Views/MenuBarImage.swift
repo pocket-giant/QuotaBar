@@ -88,7 +88,8 @@ enum MenuBarImage {
 
     /// The multi-account compact image: a colored dot + `X 45%` segment per account,
     /// separated by a middot. Text uses the dynamic label color so it adapts to light/dark.
-    /// When providers are mixed the 7 pt dot becomes the provider's own 11 pt mark, drawn in
+    /// When providers are mixed (or marks are requested for a single account), the 7 pt dot
+    /// becomes the provider's own 11 pt mark, drawn in
     /// its brand color (a trademark never carries severity), and the *percent alone* carries the
     /// severity color the dot used to carry — in its text variant (`textLevelColor`), since the
     /// prefix beside it stays `labelColor`. Single-provider output is unchanged.
@@ -99,6 +100,7 @@ enum MenuBarImage {
         replaceExhausted: Bool = true,
         highSince: [UUID: Date] = [:],
         showNames: Bool = true,
+        showProviderMarks: Bool = false,
         now: Date = Date()
     ) -> NSImage {
         let prefixes = MultiAccountMenuBar.shortPrefixes(
@@ -106,6 +108,7 @@ enum MenuBarImage {
             overrides: accounts.map(\.shortCode)
         )
         let mixed = MultiAccountMenuBar.providerShapes(for: accounts.map(\.provider))
+        let showsMarks = mixed || showProviderMarks
         // `valueColor` is nil unless the percent carries severity on its own — that is, only
         // when providers are mixed and there is a reading; "--%" is never severity-colored.
         struct Segment {
@@ -113,14 +116,14 @@ enum MenuBarImage {
             let prefix: String; let value: String; let tag: String?; let shape: ProviderShape
         }
         let segments: [Segment] = zip(prefixes, accounts).map { prefix, account in
-            let shape = ProviderShape.mark(for: account.provider, mixed: mixed)
+            let shape = ProviderShape.mark(for: account.provider, mixed: mixed, showProviderMark: showProviderMarks)
             if let snapshot = snapshots[account.id],
                let active = MenuBarSelection.active(mode: mode, snapshot: snapshot, now: now) {
                 let tag = MultiAccountMenuBar.windowTag(mode: mode, window: active.window)
                 let countdown = UsageFormatting.showsFiveHourCountdown(active, replaceExhausted: replaceExhausted,
                                                                   highSince: highSince[account.id], now: now)
                 return Segment(dotColor: countdown ? .systemBlue : levelColor(active.percent),
-                               valueColor: countdown ? countdownColor : (mixed ? textLevelColor(active.percent) : nil),
+                               valueColor: countdown ? countdownColor : (showsMarks ? textLevelColor(active.percent) : nil),
                                prefix: prefix,
                                value: UsageFormatting.menuBarValue(active, replaceExhausted: replaceExhausted,
                                                                    highSince: highSince[account.id], now: now),
@@ -151,10 +154,10 @@ enum MenuBarImage {
                     NSAttributedString(string: segment.value, attributes: valueAttrs)]
         }
 
-        // The provider marks need more room than the dot to read at menu-bar size: 11 pt,
+        // Provider marks need more room than the dot to read at menu-bar size: 11 pt,
         // the most that stays comfortably inside the 18 pt image. The dot keeps its 7 pt so
         // single-provider output stays pixel-identical.
-        let markSize: CGFloat = mixed ? 11 : 7
+        let markSize: CGFloat = showsMarks ? 11 : 7
         let dotGap: CGFloat = 3
         let segGap: CGFloat = 5
         let height: CGFloat = 18
@@ -164,7 +167,7 @@ enum MenuBarImage {
         let sep = NSAttributedString(string: "·", attributes: sepAttrs)
         for (index, segment) in segments.enumerated() {
             if index > 0 { width += sep.size().width + segGap * 2 }
-            if segment.dotColor != nil || mixed { width += markSize + dotGap }
+            if segment.dotColor != nil || showsMarks { width += markSize + dotGap }
             width += pieces(segment).reduce(0) { $0 + $1.size().width }
             if let tag = segment.tag {
                 width += tagGap + NSAttributedString(string: tag, attributes: tagAttrs).size().width
@@ -184,7 +187,7 @@ enum MenuBarImage {
                 // Mixed: every account shows its provider mark, reading or not — the mark never
                 // carried severity anyway, so a signed-out column is not the odd one out. Not
                 // mixed: no reading still means no dot, exactly as before.
-                if segment.dotColor != nil || mixed {
+                if segment.dotColor != nil || showsMarks {
                     segment.shape.draw(in: NSRect(x: x, y: (height - markSize) / 2,
                                                   width: markSize, height: markSize),
                                        severity: segment.dotColor ?? .labelColor)
@@ -216,7 +219,8 @@ enum MenuBarImage {
     /// The "Bars" mode image: one cluster per account, each a stacked pair of mini progress
     /// bars — 5h on top, 7d below — with its short prefix and the percent beside each bar.
     /// Bars use the *effective* percent, so a window past its reset shows empty, not stale.
-    static func twoStat(accounts: [Account], snapshots: [UUID: UsageSnapshot], now: Date = Date()) -> NSImage {
+    static func twoStat(accounts: [Account], snapshots: [UUID: UsageSnapshot],
+                        showProviderMarks: Bool = false, now: Date = Date()) -> NSImage {
         let prefixes = MultiAccountMenuBar.shortPrefixes(
             for: accounts.map(\.label), overrides: accounts.map(\.shortCode)
         )
@@ -240,7 +244,8 @@ enum MenuBarImage {
             let shape: ProviderShape?
         }
         let clusters: [Cluster] = zip(prefixes, accounts).map { prefix, account in
-            let shape = mixed ? ProviderShape.mark(for: account.provider, mixed: true) : nil
+            let shape = mixed || showProviderMarks
+                ? ProviderShape.mark(for: account.provider, mixed: mixed, showProviderMark: showProviderMarks) : nil
             guard let s = snapshots[account.id] else {
                 return Cluster(prefix: prefix, p5: nil, p7: nil, num5: "--", num7: "--", shape: shape)
             }

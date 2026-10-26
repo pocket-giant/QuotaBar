@@ -16,6 +16,7 @@ struct MenuBarLabel: View {
             Image(nsImage: MenuBarImage.twoStat(
                 accounts: viewModel.menuBarAccounts,
                 snapshots: viewModel.snapshots,
+                showProviderMarks: viewModel.menuBarAccounts.count == 1,
                 now: viewModel.displayNow
             ))
         } else {
@@ -26,6 +27,7 @@ struct MenuBarLabel: View {
                 replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
                 highSince: viewModel.highUsageSince,
                 showNames: viewModel.settings.showAccountNames,
+                showProviderMarks: viewModel.menuBarAccounts.count == 1,
                 now: viewModel.displayNow
             ))
         }
