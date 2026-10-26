@@ -9,20 +9,22 @@ struct MenuBarLabel: View {
     @ObservedObject var viewModel: AccountsViewModel
 
     var body: some View {
-        if viewModel.accounts.isEmpty {
+        if viewModel.menuBarAccounts.isEmpty {
             Image(systemName: "gauge.with.dots.needle.33percent")
+                .accessibilityLabel("Open QuotaBar")
+                .help("Open QuotaBar")
         } else if viewModel.menuBarDisplayMode == .bars {
             // Stacked 5h/7d mini-bars per account (single or multi).
             Image(nsImage: MenuBarImage.twoStat(
-                accounts: viewModel.accounts,
+                accounts: viewModel.menuBarAccounts,
                 snapshots: viewModel.snapshots,
                 now: viewModel.displayNow
             ))
-        } else if viewModel.isSingleAccount {
+        } else if viewModel.menuBarAccounts.count == 1 {
             singleAccountLabel
         } else {
             Image(nsImage: MenuBarImage.multiAccount(
-                accounts: viewModel.accounts,
+                accounts: viewModel.menuBarAccounts,
                 snapshots: viewModel.snapshots,
                 mode: viewModel.menuBarDisplayMode,
                 replaceExhausted: viewModel.settings.replaceExhaustedWithCountdown,
@@ -37,7 +39,7 @@ struct MenuBarLabel: View {
 
     @ViewBuilder
     private var singleAccountLabel: some View {
-        let account = viewModel.accounts[0]
+        let account = viewModel.menuBarAccounts[0]
         let snapshot = viewModel.snapshots[account.id]
         let active = MenuBarSelection.active(mode: viewModel.menuBarDisplayMode, snapshot: snapshot,
                                              now: viewModel.displayNow)

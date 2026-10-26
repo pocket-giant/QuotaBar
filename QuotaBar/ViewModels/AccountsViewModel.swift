@@ -198,6 +198,11 @@ final class AccountsViewModel: ObservableObject {
 
     // MARK: - Menu bar
 
+    /// Minimized accounts remain in the popover and continue refreshing independently.
+    var menuBarAccounts: [Account] {
+        accounts.filter { cardStates[$0.id]?.isCollapsed != true }
+    }
+
     var menuBarText: String {
         menuBarPresentation.text
     }
@@ -207,7 +212,7 @@ final class AccountsViewModel: ObservableObject {
     }
 
     private var menuBarPresentation: MenuBarPresentation.Result {
-        MenuBarPresentation.compute(accounts: accounts, snapshots: snapshots, mode: menuBarDisplayMode,
+        MenuBarPresentation.compute(accounts: menuBarAccounts, snapshots: snapshots, mode: menuBarDisplayMode,
                                     replaceExhausted: settings.replaceExhaustedWithCountdown,
                                     highSince: highUsageSince, now: displayNow)
     }

@@ -87,7 +87,7 @@ struct UsageMatrixView: View {
                         Text("Long wait for allowance")
                             .font(.system(size: 11)).foregroundStyle(palette.secondary)
                         HStack {
-                            Button("Collapse card") { viewModel.setCardCollapsed(column.id, true) }
+                            Button("Minimize") { viewModel.setCardCollapsed(column.id, true) }
                             Button("Keep open") { viewModel.dismissCollapseSuggestion(column.id) }
                         }.controlSize(.small)
                     }
@@ -143,8 +143,8 @@ struct UsageMatrixView: View {
                     .frame(width: 24, height: 24).contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand account" : "Collapse account")
-            .accessibilityLabel(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand \(account.label)" : "Collapse \(account.label)")
+            .help(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand account and show in menu bar" : "Minimize account and hide from menu bar")
+            .accessibilityLabel(viewModel.cardStates[account.id]?.isCollapsed == true ? "Expand \(account.label)" : "Minimize \(account.label)")
             if viewModel.cardStates[account.id]?.isCollapsed != true {
                 Menu {
                     Button("Rename…") {

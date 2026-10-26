@@ -23,7 +23,7 @@ It signs in on its own — a browser OAuth login (authorization code + PKCE) str
 
 - Sign in with just a browser — no Claude Code CLI, install, or login required
 - Track one or more Claude accounts, each signed in and refreshing independently
-- Collapse individual account cards; preferences survive relaunches, long waits offer a suggestion, and confirmed restored allowance expands the card
+- Minimize individual accounts to hide them from the menu bar and collapse their cards; preferences survive relaunches, long waits offer a suggestion, and confirmed restored allowance expands the card and restores menu-bar visibility
 - Track OpenAI / Codex accounts alongside Claude accounts — sign in with your ChatGPT account
 - Compact multi-account menu bar (`P 45% · W 82%`) with editable per-account prefixes
 - Color-coded (green below 70%, orange to 90%, then red) by usage level

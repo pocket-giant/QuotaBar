@@ -40,12 +40,22 @@ struct CardRenderingTests {
             }
             return image.size.height
         }
+        #expect(vm.menuBarAccounts.map(\.id) == [account.id, second.id])
         let expanded = try render("expanded", columns: Array(vm.accountViews.prefix(1)))
         vm.setCardCollapsed(account.id, true)
         let collapsed = try render("collapsed", columns: Array(vm.accountViews.prefix(1)))
         #expect(collapsed < expanded)
+        #expect(vm.menuBarAccounts.map(\.id) == [second.id])
+        #expect(vm.menuBarText == "30%")
         _ = try render("mixed", columns: vm.accountViews)
         #expect(vm.accounts.first?.email == "work@example.com")
         #expect(vm.cardStates[second.id]?.isCollapsed == false)
+        vm.setCardCollapsed(second.id, true)
+        #expect(vm.menuBarAccounts.isEmpty)
+        #expect(vm.accountViews.count == 2)
+        // With all accounts hidden the status item retains its app icon for reopening.
+        #expect(ImageRenderer(content: MenuBarLabel(viewModel: vm)).nsImage != nil)
+        vm.setCardCollapsed(account.id, false)
+        #expect(vm.menuBarAccounts.map(\.id) == [account.id])
     }
 }
